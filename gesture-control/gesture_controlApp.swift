@@ -10,23 +10,15 @@ import SwiftData
 
 @main
 struct gesture_controlApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @StateObject private var cameraManager = CameraManager()
+    @StateObject private var gestureProcessor = GestureProcessor()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            DashboardView(gestureProcessor: gestureProcessor, cameraManager: cameraManager)
+                .onAppear {
+                    cameraManager.delegate = gestureProcessor
+                }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
