@@ -133,6 +133,17 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     case scroll
   }
 
+  enum OverlayAction: Equatable {
+    case idle
+    case move
+    case scroll
+    case scrollUp
+    case scrollDown
+    case back
+    case forward
+    case click
+  }
+
   static func detectState(for landmarks: HandLandmarks) -> GestureState? {
     guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
     return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
@@ -147,6 +158,13 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
   // To track state transitions for Click
   private var previousState: GestureState = .unknown
+  @Published private(set) var overlayAction: OverlayAction = .idle
+  @Published private(set) var overlayHandBounds: CGRect?
+  @Published private(set) var overlayHandPoint: CGPoint?
+  private var overlayOverride: (action: OverlayAction, expiresAt: TimeInterval)?
+  private var lastScrollDirection: OverlayAction?
+  private var lastScrollDirectionTimestamp: TimeInterval = 0
+  private let scrollDirectionHold: TimeInterval = 0.4
 
   // Logic
   func didOutput(sampleBuffer: CMSampleBuffer) {
@@ -187,6 +205,8 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       let safeTimestamp = timestamp.isFinite ? timestamp : 0
 
       guard let landmarks = self.detector.process(sampleBuffer: sampleBuffer) else {
+        self.clearOverlayForMissingHand()
+        self.lastLandmarks = nil
         return
       }
 
@@ -224,6 +244,14 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     stateConfidenceCounter = 0
     lastClickTime = .distantPast
     lastNavigationTime = .distantPast
+    overlayOverride = nil
+    lastScrollDirection = nil
+    lastScrollDirectionTimestamp = 0
+    DispatchQueue.main.async {
+      self.overlayAction = .idle
+      self.overlayHandBounds = nil
+      self.overlayHandPoint = nil
+    }
 
     bufferQueue.sync {
       processingGeneration += 1
@@ -271,6 +299,8 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     default:
       break
     }
+
+    updateOverlay(for: currentState, landmarks: landmarks)
 
     lastLandmarks = landmarks
   }
@@ -346,6 +376,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
         if let clickPoint {
           simulator.click(at: clickPoint)
           lastClickTime = Date()
+          setOverlayOverride(.click, duration: 0.6)
         }
       }
     }
@@ -367,6 +398,95 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
         lastNavigationTime = Date()
       }
     }
+  }
+
+  private func setOverlayOverride(_ action: OverlayAction, duration: TimeInterval) {
+    overlayOverride = (action, ProcessInfo.processInfo.systemUptime + duration)
+  }
+
+  private func clearOverlayForMissingHand() {
+    DispatchQueue.main.async {
+      self.overlayAction = .idle
+      self.overlayHandBounds = nil
+      self.overlayHandPoint = nil
+    }
+  }
+
+  private func updateOverlay(for state: GestureState, landmarks: HandLandmarks) {
+    let now = ProcessInfo.processInfo.systemUptime
+    var action = overlayAction(for: state, now: now)
+
+    if let override = overlayOverride, override.expiresAt > now {
+      action = override.action
+    } else {
+      overlayOverride = nil
+    }
+
+    let bounds = handBounds(for: landmarks)
+    let point = landmarks.indexTip ?? landmarks.wrist
+
+    DispatchQueue.main.async {
+      self.overlayAction = action
+      self.overlayHandBounds = bounds
+      self.overlayHandPoint = point
+    }
+  }
+
+  private func overlayAction(for state: GestureState, now: TimeInterval) -> OverlayAction {
+    switch state {
+    case .pointer:
+      return .move
+    case .thumbLeft:
+      return .back
+    case .thumbRight:
+      return .forward
+    case .fist, .scroll:
+      if let direction = lastScrollDirection,
+        now - lastScrollDirectionTimestamp <= scrollDirectionHold
+      {
+        return direction
+      }
+      return .scroll
+    case .unknown:
+      return .idle
+    }
+  }
+
+  private func handBounds(for landmarks: HandLandmarks) -> CGRect? {
+    let points = [
+      landmarks.thumbTip,
+      landmarks.indexTip,
+      landmarks.middleTip,
+      landmarks.ringTip,
+      landmarks.littleTip,
+      landmarks.indexPIP,
+      landmarks.middlePIP,
+      landmarks.ringPIP,
+      landmarks.littlePIP,
+      landmarks.wrist,
+      landmarks.middleMCP,
+    ].compactMap { $0 }
+
+    guard let minX = points.map(\.x).min(),
+      let maxX = points.map(\.x).max(),
+      let minY = points.map(\.y).min(),
+      let maxY = points.map(\.y).max()
+    else { return nil }
+
+    let width = maxX - minX
+    let height = maxY - minY
+    let padding = max(width, height) * 0.15
+    let paddedMinX = max(0, minX - padding)
+    let paddedMinY = max(0, minY - padding)
+    let paddedMaxX = min(1, maxX + padding)
+    let paddedMaxY = min(1, maxY + padding)
+
+    return CGRect(
+      x: paddedMinX,
+      y: paddedMinY,
+      width: paddedMaxX - paddedMinX,
+      height: paddedMaxY - paddedMinY
+    )
   }
 
   private func handlePointerBehavior(landmarks: HandLandmarks, timestamp: TimeInterval) {
@@ -398,6 +518,8 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       let speed = Int32(velocity * scrollVelocityScale)
       let finalSpeed = Int32(Double(speed) * (scrollSpeed / 10.0))
       simulator.scroll(dx: 0, dy: finalSpeed)
+      lastScrollDirection = velocity > 0 ? .scrollUp : .scrollDown
+      lastScrollDirectionTimestamp = ProcessInfo.processInfo.systemUptime
     }
 
     lastWristTimestamp = timestamp

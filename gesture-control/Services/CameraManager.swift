@@ -18,6 +18,8 @@ class CameraManager: NSObject, ObservableObject {
 
   @Published var availableDevices: [AVCaptureDevice] = []
   @Published var selectedDeviceId: String?
+  @Published var videoAspectRatio: CGFloat = 4.0 / 3.0
+  @Published var shouldMirrorPreview: Bool = true
 
   private let videoOutput = AVCaptureVideoDataOutput()
   private let captureQueue = DispatchQueue(label: "camera.frame.capture", qos: .userInteractive)
@@ -96,6 +98,7 @@ class CameraManager: NSObject, ObservableObject {
           self.session.addInput(videoInput)
         }
         self.configureFrameRate(for: videoDevice)
+        self.updateDeviceInfo(videoDevice)
       }
 
       // Output
@@ -142,6 +145,20 @@ class CameraManager: NSObject, ObservableObject {
         device.activeVideoMaxFrameDuration = duration
       }
     } catch {
+    }
+  }
+
+  private func updateDeviceInfo(_ device: AVCaptureDevice) {
+    let formatDescription = device.activeFormat.formatDescription
+    let dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription)
+    let width = CGFloat(dimensions.width)
+    let height = CGFloat(dimensions.height)
+    let ratio = height > 0 ? width / height : 4.0 / 3.0
+    let mirror = device.position == .front
+
+    DispatchQueue.main.async {
+      self.videoAspectRatio = ratio
+      self.shouldMirrorPreview = mirror
     }
   }
 
