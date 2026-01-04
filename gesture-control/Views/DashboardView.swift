@@ -38,14 +38,6 @@ struct DashboardView: View {
     .sheet(isPresented: $showOnboarding) {
       OnboardingView(isPresented: $showOnboarding)
     }
-    .onAppear {
-      if gestureProcessor.isEnabled {
-        cameraManager.start()
-      }
-    }
-    .onDisappear {
-      cameraManager.stop()
-    }
   }
 
   private var settingsPanel: some View {
@@ -59,14 +51,6 @@ struct DashboardView: View {
           Toggle("Enable Control", isOn: $gestureProcessor.isEnabled)
             .toggleStyle(.switch)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .onChange(of: gestureProcessor.isEnabled) { _, isEnabled in
-              if isEnabled {
-                cameraManager.start()
-              } else {
-                cameraManager.stop()
-                gestureProcessor.resetState()
-              }
-            }
           InfoTip(text: "Starts the camera and begins interpreting gestures.")
         }
 

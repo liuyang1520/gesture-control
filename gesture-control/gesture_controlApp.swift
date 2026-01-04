@@ -9,15 +9,32 @@ import SwiftUI
 
 @main
 struct GestureControlApp: App {
-  @StateObject private var cameraManager = CameraManager()
-  @StateObject private var gestureProcessor = GestureProcessor()
+  @StateObject private var appController = AppController()
+#if os(macOS)
+  @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+#endif
 
   var body: some Scene {
-    WindowGroup {
-      DashboardView(gestureProcessor: gestureProcessor, cameraManager: cameraManager)
-        .onAppear {
-          cameraManager.delegate = gestureProcessor
-        }
+    #if os(macOS)
+    WindowGroup("Gesture Control", id: "main") {
+      DashboardView(
+        gestureProcessor: appController.gestureProcessor,
+        cameraManager: appController.cameraManager
+      )
     }
+    #else
+    WindowGroup {
+      DashboardView(
+        gestureProcessor: appController.gestureProcessor,
+        cameraManager: appController.cameraManager
+      )
+    }
+    #endif
+
+#if os(macOS)
+    MenuBarExtra("Gesture Control", systemImage: "hand.wave") {
+      MenuBarContent(gestureProcessor: appController.gestureProcessor)
+    }
+#endif
   }
 }
