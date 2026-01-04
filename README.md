@@ -5,7 +5,7 @@ Control your Mac with simple hand gestures using the built-in camera. The app ru
 ## Features
 
 - **Pointer Control**: Move the cursor by moving your open palm.
-- **Click**: Open palm -> fist triggers a click.
+- **Click**: Pinch your thumb and index finger to click.
 - **Scroll**: Make a fist (or a two-finger V) and move your hand up/down.
 - **Back/Forward**: Point your index finger left/right (other fingers closed).
 - **Visual Guidance**: Optional overlay highlights the detected hand and shows the current action.
@@ -50,7 +50,7 @@ If input isn't working:
 | Gesture | Action | Notes |
 | --- | --- | --- |
 | Open palm | Move cursor | Tracks palm center for stable clicks. |
-| Open palm -> fist | Click | Clicks at the last cursor position. |
+| Pinch thumb + index | Click | Clicks at the last cursor position. |
 | Fist or V sign + up/down | Scroll | Speed is adjustable. |
 | Index finger left/right (others closed) | Back / Forward | Uses Command+[ and Command+]. |
 
@@ -83,7 +83,7 @@ This overlay helps you understand what the detector is seeing in real time.
 
 - **Camera is black or "Camera Off"**: Check camera permissions in System Settings.
 - **Cursor doesn't move**: Ensure Accessibility permissions are granted.
-- **Click happens in the wrong place**: Make sure your palm is steady when closing into a fist.
+- **Click happens in the wrong place**: Make sure your palm is steady when pinching.
 - **Back/Forward feels reversed**: Use the front camera (mirrored) for intuitive direction; external cameras may feel less natural depending on orientation.
 - **Laggy or jittery cursor**: Adjust **Smoothing** and **Sensitivity**.
 

@@ -71,7 +71,7 @@ struct OnboardingView: View {
               Image(systemName: "hand.tap")
                 .font(.largeTitle)
               Text("Click")
-              Text("Palm → Fist")
+              Text("Pinch Thumb + Index")
                 .font(.caption)
             }
           }

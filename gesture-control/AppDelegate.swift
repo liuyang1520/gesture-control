@@ -10,8 +10,10 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var windowObservers: [NSObjectProtocol] = []
+  private var hasShownWindow = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    NSApp.setActivationPolicy(.regular)
     let center = NotificationCenter.default
     windowObservers.append(
       center.addObserver(
@@ -19,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         object: nil,
         queue: .main
       ) { [weak self] _ in
+        self?.hasShownWindow = true
         self?.updateActivationPolicy()
       }
     )
@@ -33,8 +36,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
       }
     )
-
-    updateActivationPolicy()
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -51,6 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func updateActivationPolicy() {
+    if !hasShownWindow {
+      if NSApp.activationPolicy() != .regular {
+        NSApp.setActivationPolicy(.regular)
+      }
+      return
+    }
+
     let hasVisibleWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
     let targetPolicy: NSApplication.ActivationPolicy = hasVisibleWindow ? .regular : .accessory
     if NSApp.activationPolicy() != targetPolicy {

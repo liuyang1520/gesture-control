@@ -114,6 +114,9 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private var lastNavigationTime: Date = .distantPast
   private let clickCooldown: TimeInterval = 0.35
   private let navigationCooldown: TimeInterval = 1.0
+  private var isPinchActive = false
+  private let pinchStartThreshold: CGFloat = 0.35
+  private let pinchReleaseThreshold: CGFloat = 0.45
   private let pointerDeadzone: CGFloat = 0.0015
   private let pointerMinCutoff: Double = 0.3
   private let pointerMaxCutoff: Double = 1.5
@@ -156,7 +159,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   // Lowered to cut gesture-to-action latency.
   private var pendingState: GestureState = .unknown
 
-  // To track state transitions for Click
+  // To track state transitions
   private var previousState: GestureState = .unknown
   @Published private(set) var overlayAction: OverlayAction = .idle
   @Published private(set) var overlayHandBounds: CGRect?
@@ -244,6 +247,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     stateConfidenceCounter = 0
     lastClickTime = .distantPast
     lastNavigationTime = .distantPast
+    isPinchActive = false
     overlayOverride = nil
     lastScrollDirection = nil
     lastScrollDirectionTimestamp = 0
@@ -265,6 +269,17 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     else { return }
 
     let detectedState = Self.detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
+    let handScale = hypot(wrist.x - middleMCP.x, wrist.y - middleMCP.y)
+    let allowPinchClick = detectedState != .fist && detectedState != .scroll
+    if handScale > 0 {
+      handlePinchClick(
+        landmarks: landmarks,
+        handScale: handScale,
+        allowClick: allowPinchClick
+      )
+    } else {
+      isPinchActive = false
+    }
 
     // --- 2. State Hysteresis (Debounce) ---
 
@@ -358,27 +373,6 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private func handleStateTransition(
     from old: GestureState, to new: GestureState, landmarks: HandLandmarks
   ) {
-    // CLICK: Palm (Pointer) -> Fist (Scroll)
-    if old == .pointer && new == .fist {
-      if Date().timeIntervalSince(lastClickTime) > clickCooldown {
-        print("Click Triggered (Palm -> Fist)")
-        let clickPoint =
-          lastPointerScreenPoint
-          ?? {
-            if let palmPoint = palmCenter(for: landmarks) {
-              return mapToScreen(point: palmPoint)
-            }
-            if let indexTip = landmarks.indexTip { return mapToScreen(point: indexTip) }
-            return nil
-          }()
-        if let clickPoint {
-          simulator.click(at: clickPoint)
-          lastClickTime = Date()
-          setOverlayOverride(.click, duration: 0.6)
-        }
-      }
-    }
-
     if new == .fist || new == .scroll {
       lastWristTimestamp = nil
     }
@@ -521,6 +515,49 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     }
 
     lastWristTimestamp = timestamp
+  }
+
+  private func handlePinchClick(
+    landmarks: HandLandmarks,
+    handScale: CGFloat,
+    allowClick: Bool
+  ) {
+    guard allowClick else {
+      isPinchActive = false
+      return
+    }
+    guard let thumbTip = landmarks.thumbTip, let indexTip = landmarks.indexTip else {
+      isPinchActive = false
+      return
+    }
+
+    let distance = hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / handScale
+    if isPinchActive {
+      if distance >= pinchReleaseThreshold {
+        isPinchActive = false
+      }
+      return
+    }
+
+    if distance <= pinchStartThreshold {
+      isPinchActive = true
+      if Date().timeIntervalSince(lastClickTime) > clickCooldown {
+        let clickPoint =
+          lastPointerScreenPoint
+          ?? {
+            if let palmPoint = palmCenter(for: landmarks) {
+              return mapToScreen(point: palmPoint)
+            }
+            if let indexTip = landmarks.indexTip { return mapToScreen(point: indexTip) }
+            return nil
+          }()
+        if let clickPoint {
+          simulator.click(at: clickPoint)
+          lastClickTime = Date()
+          setOverlayOverride(.click, duration: 0.6)
+        }
+      }
+    }
   }
 
   private func palmCenter(for landmarks: HandLandmarks) -> CGPoint? {
