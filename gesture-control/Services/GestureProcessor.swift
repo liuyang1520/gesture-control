@@ -146,12 +146,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
   static func detectState(for landmarks: HandLandmarks) -> GestureState? {
     guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
-    return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP, isMirrored: false)
-  }
-
-  static func detectState(for landmarks: HandLandmarks, isMirrored: Bool) -> GestureState? {
-    guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
-    return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP, isMirrored: isMirrored)
+    return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
   }
 
   private var currentState: GestureState = .unknown
@@ -170,7 +165,6 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private var lastScrollDirection: OverlayAction?
   private var lastScrollDirectionTimestamp: TimeInterval = 0
   private let scrollDirectionHold: TimeInterval = 0.4
-  private var isMirroredInput = false
 
   // Logic
   func didOutput(sampleBuffer: CMSampleBuffer) {
@@ -193,10 +187,6 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     if shouldProcess {
       processSampleBufferAsync(buffer, generation: generation)
     }
-  }
-
-  func cameraDidUpdate(isMirrored: Bool) {
-    isMirroredInput = isMirrored
   }
 
   private func processSampleBufferAsync(_ sampleBuffer: CMSampleBuffer, generation: Int) {
@@ -274,12 +264,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       let middleMCP = landmarks.middleMCP
     else { return }
 
-    let detectedState = Self.detectState(
-      for: landmarks,
-      wrist: wrist,
-      middleMCP: middleMCP,
-      isMirrored: isMirroredInput
-    )
+    let detectedState = Self.detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
 
     // --- 2. State Hysteresis (Debounce) ---
 
@@ -320,12 +305,9 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     lastLandmarks = landmarks
   }
 
-  private static func detectState(
-    for landmarks: HandLandmarks,
-    wrist: CGPoint,
-    middleMCP: CGPoint,
-    isMirrored: Bool
-  ) -> GestureState {
+  private static func detectState(for landmarks: HandLandmarks, wrist: CGPoint, middleMCP: CGPoint)
+    -> GestureState
+  {
     func dist(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
       return hypot(p1.x - p2.x, p1.y - p2.y)
     }
@@ -355,11 +337,10 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     if indexOpen && !middleOpen && !ringOpen && !littleOpen, let indexTip = landmarks.indexTip {
       let dx = indexTip.x - middleMCP.x
       let dy = indexTip.y - middleMCP.y
-      let adjustedDx = isMirrored ? -dx : dx
-      let horizontalBias = abs(adjustedDx) > abs(dy) * 1.2
+      let horizontalBias = abs(dx) > abs(dy) * 1.2
       let threshold = handScale * 0.35
-      if horizontalBias && abs(adjustedDx) > threshold {
-        return adjustedDx < 0 ? .indexLeft : .indexRight
+      if horizontalBias && abs(dx) > threshold {
+        return dx < 0 ? .indexRight : .indexLeft
       }
     }
 
