@@ -111,6 +111,26 @@ xcrun swift-format format --in-place --recursive gesture-control
 xcrun swift-format lint --recursive gesture-control
 ```
 
+## Release Automation
+
+Use the release helper script to bump versions and optionally build/tag:
+
+```sh
+scripts/release.sh 0.1.0 --build 1
+```
+
+Build and zip a macOS app (unsigned):
+
+```sh
+scripts/release.sh 0.1.0 --build 1 --build-app --unsigned
+```
+
+Create a tag/commit and push:
+
+```sh
+scripts/release.sh 0.1.0 --build 1 --push
+```
+
 ## Privacy
 
 All processing runs locally on your Mac. Camera frames are analyzed in memory and are not sent to any external service.
