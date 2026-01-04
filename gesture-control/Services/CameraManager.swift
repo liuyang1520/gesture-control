@@ -32,7 +32,11 @@ class CameraManager: NSObject, ObservableObject {
   ]
 
   // Delegate to pass the buffer to the detector
-  weak var delegate: CameraManagerDelegate?
+  weak var delegate: CameraManagerDelegate? {
+    didSet {
+      delegate?.cameraDidUpdate(isMirrored: shouldMirrorPreview)
+    }
+  }
 
   override init() {
     super.init()
@@ -159,6 +163,7 @@ class CameraManager: NSObject, ObservableObject {
     DispatchQueue.main.async {
       self.videoAspectRatio = ratio
       self.shouldMirrorPreview = mirror
+      self.delegate?.cameraDidUpdate(isMirrored: mirror)
     }
   }
 
@@ -198,4 +203,5 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
 
 protocol CameraManagerDelegate: AnyObject {
   func didOutput(sampleBuffer: CMSampleBuffer)
+  func cameraDidUpdate(isMirrored: Bool)
 }

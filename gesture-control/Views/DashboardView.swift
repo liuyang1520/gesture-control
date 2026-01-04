@@ -55,22 +55,28 @@ struct DashboardView: View {
           .font(.title)
           .fontWeight(.bold)
 
-        Toggle("Enable Control", isOn: $gestureProcessor.isEnabled)
-          .toggleStyle(.switch)
-          .onChange(of: gestureProcessor.isEnabled) { isEnabled in
-            if isEnabled {
-              cameraManager.start()
-            } else {
-              cameraManager.stop()
-              gestureProcessor.resetState()
+        HStack(spacing: 8) {
+          Toggle("Enable Control", isOn: $gestureProcessor.isEnabled)
+            .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: gestureProcessor.isEnabled) { _, isEnabled in
+              if isEnabled {
+                cameraManager.start()
+              } else {
+                cameraManager.stop()
+                gestureProcessor.resetState()
+              }
             }
-          }
+          InfoTip(text: "Starts the camera and begins interpreting gestures.")
+        }
 
         Divider()
 
-        Group {
-          Text("Camera Source")
-            .font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+          SettingsHeader(
+            title: "Camera Source",
+            help: "Choose which camera feeds the gesture detector."
+          )
 
           Picker(
             "Select Camera",
@@ -86,9 +92,11 @@ struct DashboardView: View {
           .labelsHidden()
         }
 
-        Group {
-          Text("Sensitivity")
-            .font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+          SettingsHeader(
+            title: "Sensitivity",
+            help: "Higher values make the cursor move farther for the same hand motion."
+          )
           Slider(value: $gestureProcessor.sensitivity, in: 0.5...3.0) {
             Text("Speed")
           }
@@ -97,9 +105,11 @@ struct DashboardView: View {
             .foregroundColor(.secondary)
         }
 
-        Group {
-          Text("Scroll Speed")
-            .font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+          SettingsHeader(
+            title: "Scroll Speed",
+            help: "Controls how fast scroll gestures move content."
+          )
           Slider(value: $gestureProcessor.scrollSpeed, in: 1...50) {
             Text("Scroll Speed")
           }
@@ -108,9 +118,11 @@ struct DashboardView: View {
             .foregroundColor(.secondary)
         }
 
-        Group {
-          Text("Smoothing")
-            .font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+          SettingsHeader(
+            title: "Smoothing",
+            help: "Higher values smooth jitter but add a bit of lag."
+          )
           Stepper(
             "Stability: \(gestureProcessor.pointerSmoothing)",
             value: $gestureProcessor.pointerSmoothing, in: 1...20)
@@ -128,6 +140,7 @@ struct DashboardView: View {
           .cornerRadius(8)
         }
         .buttonStyle(.plain)
+        .help("Walk through gesture examples and permissions.")
       }
       .padding()
     }
@@ -169,6 +182,41 @@ struct DashboardView: View {
           .foregroundColor(.white)
           .font(.headline)
       }
+    }
+  }
+}
+
+private struct SettingsHeader: View {
+  let title: String
+  let help: String
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Text(title)
+        .font(.headline)
+      InfoTip(text: help)
+    }
+  }
+}
+
+private struct InfoTip: View {
+  let text: String
+  @State private var isPresented = false
+
+  var body: some View {
+    Button {
+      isPresented.toggle()
+    } label: {
+      Image(systemName: "info.circle")
+        .foregroundColor(.secondary)
+    }
+    .buttonStyle(.plain)
+    .help(text)
+    .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+      Text(text)
+        .font(.caption)
+        .padding(12)
+        .frame(width: 220, alignment: .leading)
     }
   }
 }

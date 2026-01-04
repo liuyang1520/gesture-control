@@ -127,8 +127,8 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     case unknown
     case pointer  // Open Palm
     case fist  // All Closed (Scroll)
-    case thumbLeft  // Fist + Thumb Left (Back)
-    case thumbRight  // Fist + Thumb Right (Forward)
+    case indexLeft  // Index Left (Back)
+    case indexRight  // Index Right (Forward)
     // Two Fingers (Victory) - Kept for user preference or legacy, but detecting 'Fist' for scroll now per request.
     case scroll
   }
@@ -146,7 +146,12 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
   static func detectState(for landmarks: HandLandmarks) -> GestureState? {
     guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
-    return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
+    return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP, isMirrored: false)
+  }
+
+  static func detectState(for landmarks: HandLandmarks, isMirrored: Bool) -> GestureState? {
+    guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
+    return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP, isMirrored: isMirrored)
   }
 
   private var currentState: GestureState = .unknown
@@ -165,6 +170,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private var lastScrollDirection: OverlayAction?
   private var lastScrollDirectionTimestamp: TimeInterval = 0
   private let scrollDirectionHold: TimeInterval = 0.4
+  private var isMirroredInput = false
 
   // Logic
   func didOutput(sampleBuffer: CMSampleBuffer) {
@@ -187,6 +193,10 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     if shouldProcess {
       processSampleBufferAsync(buffer, generation: generation)
     }
+  }
+
+  func cameraDidUpdate(isMirrored: Bool) {
+    isMirroredInput = isMirrored
   }
 
   private func processSampleBufferAsync(_ sampleBuffer: CMSampleBuffer, generation: Int) {
@@ -264,7 +274,12 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       let middleMCP = landmarks.middleMCP
     else { return }
 
-    let detectedState = Self.detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
+    let detectedState = Self.detectState(
+      for: landmarks,
+      wrist: wrist,
+      middleMCP: middleMCP,
+      isMirrored: isMirroredInput
+    )
 
     // --- 2. State Hysteresis (Debounce) ---
 
@@ -305,9 +320,12 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     lastLandmarks = landmarks
   }
 
-  private static func detectState(for landmarks: HandLandmarks, wrist: CGPoint, middleMCP: CGPoint)
-    -> GestureState
-  {
+  private static func detectState(
+    for landmarks: HandLandmarks,
+    wrist: CGPoint,
+    middleMCP: CGPoint,
+    isMirrored: Bool
+  ) -> GestureState {
     func dist(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
       return hypot(p1.x - p2.x, p1.y - p2.y)
     }
@@ -326,7 +344,6 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     let middleOpen = isFingerOpen(tip: landmarks.middleTip, pip: landmarks.middlePIP)
     let ringOpen = isFingerOpen(tip: landmarks.ringTip, pip: landmarks.ringPIP)
     let littleOpen = isFingerOpen(tip: landmarks.littleTip, pip: landmarks.littlePIP)
-    let thumbOpen = isFingerOpen(tip: landmarks.thumbTip, pip: landmarks.middleMCP)
 
     let fourFingersOpen = indexOpen && middleOpen && ringOpen && littleOpen
     let fourFingersClosed = !indexOpen && !middleOpen && !ringOpen && !littleOpen
@@ -335,21 +352,18 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       return .pointer
     }
 
+    if indexOpen && !middleOpen && !ringOpen && !littleOpen, let indexTip = landmarks.indexTip {
+      let dx = indexTip.x - middleMCP.x
+      let dy = indexTip.y - middleMCP.y
+      let adjustedDx = isMirrored ? -dx : dx
+      let horizontalBias = abs(adjustedDx) > abs(dy) * 1.2
+      let threshold = handScale * 0.35
+      if horizontalBias && abs(adjustedDx) > threshold {
+        return adjustedDx < 0 ? .indexLeft : .indexRight
+      }
+    }
+
     if fourFingersClosed {
-      if !thumbOpen {
-        return .fist
-      }
-
-      if let tip = landmarks.thumbTip {
-        let centerX = middleMCP.x
-        if tip.x < centerX - 0.05 {
-          return .thumbLeft
-        }
-        if tip.x > centerX + 0.05 {
-          return .thumbRight
-        }
-      }
-
       return .fist
     }
 
@@ -370,6 +384,9 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
         let clickPoint =
           lastPointerScreenPoint
           ?? {
+            if let palmPoint = palmCenter(for: landmarks) {
+              return mapToScreen(point: palmPoint)
+            }
             if let indexTip = landmarks.indexTip { return mapToScreen(point: indexTip) }
             return nil
           }()
@@ -388,12 +405,12 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     // Navigation One-Shots
     // We add a cooldown to prevent rapid firing if state flutters
     if Date().timeIntervalSince(lastNavigationTime) > navigationCooldown {
-      if new == .thumbLeft {
-        print("Thumb Left -> Back")
+      if new == .indexLeft {
+        print("Index Left -> Back")
         simulator.navigateBack()
         lastNavigationTime = Date()
-      } else if new == .thumbRight {
-        print("Thumb Right -> Forward")
+      } else if new == .indexRight {
+        print("Index Right -> Forward")
         simulator.navigateForward()
         lastNavigationTime = Date()
       }
@@ -423,7 +440,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     }
 
     let bounds = handBounds(for: landmarks)
-    let point = landmarks.indexTip ?? landmarks.wrist
+    let point = palmCenter(for: landmarks) ?? landmarks.indexTip ?? landmarks.wrist
 
     DispatchQueue.main.async {
       self.overlayAction = action
@@ -436,9 +453,9 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     switch state {
     case .pointer:
       return .move
-    case .thumbLeft:
+    case .indexLeft:
       return .back
-    case .thumbRight:
+    case .indexRight:
       return .forward
     case .fist, .scroll:
       if let direction = lastScrollDirection,
@@ -490,10 +507,10 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   }
 
   private func handlePointerBehavior(landmarks: HandLandmarks, timestamp: TimeInterval) {
-    guard let indexTip = landmarks.indexTip else { return }
+    guard let pointerPoint = palmCenter(for: landmarks) ?? landmarks.indexTip else { return }
 
     // Move Pointer
-    let smoothedPoint = smooth(point: indexTip, timestamp: timestamp)
+    let smoothedPoint = smooth(point: pointerPoint, timestamp: timestamp)
     let targetPoint = mapToScreen(point: smoothedPoint)
     lastPointerScreenPoint = targetPoint
     simulator.moveMouse(to: targetPoint)
@@ -523,6 +540,14 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     }
 
     lastWristTimestamp = timestamp
+  }
+
+  private func palmCenter(for landmarks: HandLandmarks) -> CGPoint? {
+    guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
+    return CGPoint(
+      x: (wrist.x + middleMCP.x) * 0.5,
+      y: (wrist.y + middleMCP.y) * 0.5
+    )
   }
 
   private func pointerFilterParameters() -> (minCutoff: Double, beta: Double) {

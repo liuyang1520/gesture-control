@@ -34,26 +34,28 @@ struct GestureControlTests {
     #expect(GestureProcessor.detectState(for: landmarks) == .fist)
   }
 
-  @Test func detectStateThumbLeft() async throws {
+  @Test func detectStateIndexLeft() async throws {
     let landmarks = makeLandmarks(
-      indexOpen: false,
+      indexOpen: true,
       middleOpen: false,
       ringOpen: false,
       littleOpen: false,
-      thumbTip: CGPoint(x: 0.35, y: 0.2)
+      indexTipOverride: CGPoint(x: 0.2, y: 0.3),
+      indexPIPOverride: CGPoint(x: 0.42, y: 0.26)
     )
-    #expect(GestureProcessor.detectState(for: landmarks) == .thumbLeft)
+    #expect(GestureProcessor.detectState(for: landmarks) == .indexLeft)
   }
 
-  @Test func detectStateThumbRight() async throws {
+  @Test func detectStateIndexRight() async throws {
     let landmarks = makeLandmarks(
-      indexOpen: false,
+      indexOpen: true,
       middleOpen: false,
       ringOpen: false,
       littleOpen: false,
-      thumbTip: CGPoint(x: 0.65, y: 0.2)
+      indexTipOverride: CGPoint(x: 0.8, y: 0.3),
+      indexPIPOverride: CGPoint(x: 0.58, y: 0.26)
     )
-    #expect(GestureProcessor.detectState(for: landmarks) == .thumbRight)
+    #expect(GestureProcessor.detectState(for: landmarks) == .indexRight)
   }
 
   @Test func detectStateScroll() async throws {
@@ -91,7 +93,9 @@ private func makeLandmarks(
   middleOpen: Bool,
   ringOpen: Bool,
   littleOpen: Bool,
-  thumbTip: CGPoint
+  thumbTip: CGPoint = CGPoint(x: 0.55, y: 0.2),
+  indexTipOverride: CGPoint? = nil,
+  indexPIPOverride: CGPoint? = nil
 ) -> HandLandmarks {
   let wrist = CGPoint(x: 0.5, y: 0.2)
   let middleMCP = CGPoint(x: 0.5, y: 0.3)
@@ -103,7 +107,9 @@ private func makeLandmarks(
     return (CGPoint(x: baseX, y: 0.23), CGPoint(x: baseX, y: 0.25))
   }
 
-  let (indexTip, indexPIP) = fingerPoints(open: indexOpen, baseX: 0.45)
+  let (defaultIndexTip, defaultIndexPIP) = fingerPoints(open: indexOpen, baseX: 0.45)
+  let indexTip = indexTipOverride ?? defaultIndexTip
+  let indexPIP = indexPIPOverride ?? defaultIndexPIP
   let (middleTip, middlePIP) = fingerPoints(open: middleOpen, baseX: 0.5)
   let (ringTip, ringPIP) = fingerPoints(open: ringOpen, baseX: 0.55)
   let (littleTip, littlePIP) = fingerPoints(open: littleOpen, baseX: 0.6)

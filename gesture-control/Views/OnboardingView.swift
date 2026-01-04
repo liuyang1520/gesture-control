@@ -89,7 +89,7 @@ struct OnboardingView: View {
               Image(systemName: "arrow.left.and.right")
                 .font(.largeTitle)
               Text("Back/Forward")
-              Text("Thumb Left/Right")
+              Text("Index Left/Right")
                 .font(.caption)
             }
           }
