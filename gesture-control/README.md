@@ -4,13 +4,11 @@ Control your Mac with simple hand gestures using the built-in camera.
 
 ## Features
 
-- **Pointer Control**: Move your index finger to control the mouse cursor.
-- **Navigation**:
-    - **Swipe Left/Right** with an open palm to go Back/Forward (e.g., in Safari).
-- **App Switching**:
-    - **Swipe Up** with 3 fingers to open Mission Control or Switch Apps.
-- **Zoom**:
-    - **Pinch (Thumb + Index)** and move your hand Up/Down to Zoom In/Out.
+- **Pointer Control**: Open your palm and move your index finger to control the cursor.
+- **Click**: Transition from an open palm to a fist to click.
+- **Scroll**: Make a fist (or a two-finger V) and move your hand up/down to scroll.
+- **Navigation**: Make a fist and point your thumb left/right to go Back/Forward.
+- **Tuning**: Adjust sensitivity, smoothing, and scroll speed.
 
 ## Getting Started
 
@@ -32,9 +30,10 @@ Control your Mac with simple hand gestures using the built-in camera.
     - Active Area: The central 80% of the camera view.
 4.  **Gestures**:
     - Keep your hand visible.
-    - **Move**: Point with your index finger.
-    - **Click/Drag**: Pinch your index and thumb together. (Note: Basic click is implemented as Pinch, but for better experience, use the tracked cursor and click manually or use the "Pinch" gesture if enabled).
-    - **Zoom**: Pinch and hold, then move your hand up or down.
+    - **Move**: Open palm + index finger.
+    - **Click**: Open palm → fist.
+    - **Scroll**: Fist (or two-finger V) + move up/down.
+    - **Back/Forward**: Fist + thumb left/right.
 
 ## Troubleshooting
 

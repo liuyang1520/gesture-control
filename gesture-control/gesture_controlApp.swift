@@ -6,19 +6,18 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
-struct gesture_controlApp: App {
-    @StateObject private var cameraManager = CameraManager()
-    @StateObject private var gestureProcessor = GestureProcessor()
+struct GestureControlApp: App {
+  @StateObject private var cameraManager = CameraManager()
+  @StateObject private var gestureProcessor = GestureProcessor()
 
-    var body: some Scene {
-        WindowGroup {
-            DashboardView(gestureProcessor: gestureProcessor, cameraManager: cameraManager)
-                .onAppear {
-                    cameraManager.delegate = gestureProcessor
-                }
+  var body: some Scene {
+    WindowGroup {
+      DashboardView(gestureProcessor: gestureProcessor, cameraManager: cameraManager)
+        .onAppear {
+          cameraManager.delegate = gestureProcessor
         }
     }
+  }
 }
