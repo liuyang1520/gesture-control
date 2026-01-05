@@ -119,11 +119,27 @@ Use the release helper script to bump versions and optionally build/tag:
 scripts/release.sh 0.1.0 --build 1
 ```
 
-Build and zip a macOS app (unsigned):
+Release builds should be signed with a Developer ID identity; use `--sign-id` (and optionally `--notarize`). For local testing, pass `--unsigned`.
+
+Build and zip a macOS app (unsigned, local only):
 
 ```sh
 scripts/release.sh 0.1.0 --build 1 --build-app --unsigned
 ```
+
+If Gatekeeper blocks the unsigned app, remove quarantine from the app bundle only:
+
+```sh
+xattr -dr com.apple.quarantine /path/to/gesture-control.app
+```
+
+Build, sign, and notarize a macOS app for release:
+
+```sh
+scripts/release.sh 0.1.0 --build 1 --build-app --sign-id "Developer ID Application: Your Name (TEAMID)" --notarize --notary-profile "gesture-control-notary"
+```
+
+Create the `--notary-profile` with `xcrun notarytool store-credentials`, or set `NOTARY_PROFILE` to a stored profile name.
 
 Create a tag/commit and push:
 

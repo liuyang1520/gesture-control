@@ -11,6 +11,9 @@ Options:
   --skip-tag          Do not create a git tag
   --build-app         Build and zip the macOS app
   --unsigned          Disable code signing for the build
+  --sign-id <id>      Sign with a Developer ID Application identity
+  --notarize          Notarize the app (requires --sign-id + notary profile)
+  --notary-profile <name>  Keychain profile for notarytool (defaults to $NOTARY_PROFILE)
   --push              Push commit and tag to origin
   --gh                Create a GitHub release (requires gh + --build-app)
 EOF
@@ -27,6 +30,9 @@ SKIP_COMMIT=false
 SKIP_TAG=false
 BUILD_APP=false
 UNSIGNED=false
+SIGN_IDENTITY=""
+DO_NOTARIZE=false
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 DO_PUSH=false
 DO_GH=false
 
@@ -55,6 +61,18 @@ while [[ $# -gt 0 ]]; do
       UNSIGNED=true
       shift
       ;;
+    --sign-id)
+      SIGN_IDENTITY="${2:-}"
+      shift 2
+      ;;
+    --notarize)
+      DO_NOTARIZE=true
+      shift
+      ;;
+    --notary-profile)
+      NOTARY_PROFILE="${2:-}"
+      shift 2
+      ;;
     --push)
       DO_PUSH=true
       shift
@@ -74,6 +92,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if $UNSIGNED && { [[ -n "$SIGN_IDENTITY" ]] || $DO_NOTARIZE; }; then
+  echo "--unsigned cannot be combined with --sign-id or --notarize."
+  exit 1
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PBXPROJ="$ROOT/gesture-control.xcodeproj/project.pbxproj"
@@ -138,6 +161,12 @@ if $BUILD_APP; then
   SIGNING_ARGS=()
   if $UNSIGNED; then
     SIGNING_ARGS+=(CODE_SIGNING_ALLOWED=NO)
+  else
+    if [[ -z "$SIGN_IDENTITY" ]]; then
+      echo "Missing --sign-id. Use --unsigned for local builds."
+      exit 1
+    fi
+    SIGNING_ARGS+=(CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$SIGN_IDENTITY")
   fi
 
   xcodebuild \
@@ -154,15 +183,39 @@ if $BUILD_APP; then
     exit 1
   fi
 
+  if ! $UNSIGNED; then
+    if ! codesign --verify --deep --strict --verbose=2 "$APP_PATH" >/dev/null 2>&1; then
+      echo "Code signing verification failed for $APP_PATH."
+      exit 1
+    fi
+    if codesign -dv "$APP_PATH" 2>&1 | rg -q "Signature=adhoc"; then
+      echo "Ad-hoc signature detected; provide a Developer ID identity via --sign-id."
+      exit 1
+    fi
+  fi
+
   ZIP_NAME="Gesture-Control-macOS-v${VERSION}.zip"
-  ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$BUILD_DIR/$ZIP_NAME"
-  echo "Created $BUILD_DIR/$ZIP_NAME"
+  ZIP_PATH="$BUILD_DIR/$ZIP_NAME"
+  ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+  echo "Created $ZIP_PATH"
+
+  if $DO_NOTARIZE; then
+    if [[ -z "$NOTARY_PROFILE" ]]; then
+      echo "Missing notary profile. Set NOTARY_PROFILE or pass --notary-profile."
+      exit 1
+    fi
+    echo "Submitting $ZIP_PATH for notarization..."
+    xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun stapler staple "$APP_PATH"
+    ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+    echo "Stapled and re-zipped $ZIP_PATH"
+  fi
 
   if $DO_GH; then
     if ! command -v gh >/dev/null 2>&1; then
       echo "gh not found; install GitHub CLI or rerun without --gh."
       exit 1
     fi
-    gh release create "v$VERSION" "$BUILD_DIR/$ZIP_NAME" -t "Gesture Control v$VERSION" --generate-notes
+    gh release create "v$VERSION" "$ZIP_PATH" -t "Gesture Control v$VERSION" --generate-notes
   fi
 fi
