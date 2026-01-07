@@ -18,6 +18,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
   // Settings
   @Published var isEnabled: Bool = false
+  @Published var isFloatingPreviewEnabled: Bool = true
   @Published var pointerSmoothing: Int = 1  // Lower default for snappier cursor
   @Published var sensitivity: CGFloat = 2.0
   @Published var scrollSpeed: Double = 20.0  // Increased default slightly

@@ -13,6 +13,9 @@ final class AppController: ObservableObject {
   let gestureProcessor = GestureProcessor()
 
   private var cancellables = Set<AnyCancellable>()
+#if os(macOS)
+  private var floatingPreviewController: FloatingPreviewWindowController?
+#endif
 
   init() {
     cameraManager.delegate = gestureProcessor
@@ -29,5 +32,37 @@ final class AppController: ObservableObject {
         }
       }
       .store(in: &cancellables)
+
+#if os(macOS)
+    gestureProcessor.$isEnabled
+      .combineLatest(gestureProcessor.$isFloatingPreviewEnabled)
+      .map { $0 && $1 }
+      .removeDuplicates()
+      .sink { [weak self] shouldShow in
+        guard let self else { return }
+        if shouldShow {
+          self.showFloatingPreview()
+        } else {
+          self.hideFloatingPreview()
+        }
+      }
+      .store(in: &cancellables)
+#endif
   }
+
+#if os(macOS)
+  private func showFloatingPreview() {
+    if floatingPreviewController == nil {
+      floatingPreviewController = FloatingPreviewWindowController(
+        cameraManager: cameraManager,
+        gestureProcessor: gestureProcessor
+      )
+    }
+    floatingPreviewController?.show()
+  }
+
+  private func hideFloatingPreview() {
+    floatingPreviewController?.hide()
+  }
+#endif
 }
