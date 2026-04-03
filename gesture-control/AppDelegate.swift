@@ -6,64 +6,66 @@
 //
 
 #if os(macOS)
-import AppKit
+  import AppKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
-  private var windowObservers: [NSObjectProtocol] = []
-  private var hasShownWindow = false
+  final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var windowObservers: [NSObjectProtocol] = []
+    private var hasShownWindow = false
 
-  func applicationDidFinishLaunching(_ notification: Notification) {
-    NSApp.setActivationPolicy(.regular)
-    let center = NotificationCenter.default
-    windowObservers.append(
-      center.addObserver(
-        forName: NSWindow.didBecomeKeyNotification,
-        object: nil,
-        queue: .main
-      ) { [weak self] _ in
-        self?.hasShownWindow = true
-        self?.updateActivationPolicy()
-      }
-    )
-    windowObservers.append(
-      center.addObserver(
-        forName: NSWindow.willCloseNotification,
-        object: nil,
-        queue: .main
-      ) { [weak self] _ in
-        DispatchQueue.main.async {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+      NSApp.setActivationPolicy(.regular)
+      let center = NotificationCenter.default
+      windowObservers.append(
+        center.addObserver(
+          forName: NSWindow.didBecomeKeyNotification,
+          object: nil,
+          queue: .main
+        ) { [weak self] _ in
+          self?.hasShownWindow = true
           self?.updateActivationPolicy()
         }
+      )
+      windowObservers.append(
+        center.addObserver(
+          forName: NSWindow.willCloseNotification,
+          object: nil,
+          queue: .main
+        ) { [weak self] _ in
+          DispatchQueue.main.async {
+            self?.updateActivationPolicy()
+          }
+        }
+      )
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+      return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
+      -> Bool
+    {
+      if !flag {
+        sender.windows.first?.makeKeyAndOrderFront(nil)
       }
-    )
-  }
-
-  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return false
-  }
-
-  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-    if !flag {
-      sender.windows.first?.makeKeyAndOrderFront(nil)
+      sender.activate(ignoringOtherApps: true)
+      updateActivationPolicy()
+      return true
     }
-    sender.activate(ignoringOtherApps: true)
-    updateActivationPolicy()
-    return true
-  }
 
-  private func updateActivationPolicy() {
-    if !hasShownWindow {
-      if NSApp.activationPolicy() != .regular {
-        NSApp.setActivationPolicy(.regular)
+    private func updateActivationPolicy() {
+      if !hasShownWindow {
+        if NSApp.activationPolicy() != .regular {
+          NSApp.setActivationPolicy(.regular)
+        }
+        return
       }
-      return
-    }
 
-    let hasVisibleWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
-    let targetPolicy: NSApplication.ActivationPolicy = hasVisibleWindow ? .regular : .accessory
-    if NSApp.activationPolicy() != targetPolicy {
-      NSApp.setActivationPolicy(targetPolicy)
+      let hasVisibleWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
+      let targetPolicy: NSApplication.ActivationPolicy = hasVisibleWindow ? .regular : .accessory
+      if NSApp.activationPolicy() != targetPolicy {
+        NSApp.setActivationPolicy(targetPolicy)
+      }
     }
   }
-}
 #endif

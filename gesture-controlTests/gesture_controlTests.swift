@@ -11,7 +11,6 @@ import Testing
 @testable import gesture_control
 
 struct GestureControlTests {
-
   @Test func detectStatePointer() async throws {
     let landmarks = makeLandmarks(
       indexOpen: true,
@@ -34,7 +33,7 @@ struct GestureControlTests {
     #expect(GestureProcessor.detectState(for: landmarks) == .fist)
   }
 
-  @Test func detectStateIndexLeft() async throws {
+  @Test func detectStateImageLeftMapsToIndexRight() async throws {
     let landmarks = makeLandmarks(
       indexOpen: true,
       middleOpen: false,
@@ -43,10 +42,10 @@ struct GestureControlTests {
       indexTipOverride: CGPoint(x: 0.2, y: 0.3),
       indexPIPOverride: CGPoint(x: 0.42, y: 0.26)
     )
-    #expect(GestureProcessor.detectState(for: landmarks) == .indexLeft)
+    #expect(GestureProcessor.detectState(for: landmarks) == .indexRight)
   }
 
-  @Test func detectStateIndexRight() async throws {
+  @Test func detectStateImageRightMapsToIndexLeft() async throws {
     let landmarks = makeLandmarks(
       indexOpen: true,
       middleOpen: false,
@@ -55,7 +54,7 @@ struct GestureControlTests {
       indexTipOverride: CGPoint(x: 0.8, y: 0.3),
       indexPIPOverride: CGPoint(x: 0.58, y: 0.26)
     )
-    #expect(GestureProcessor.detectState(for: landmarks) == .indexRight)
+    #expect(GestureProcessor.detectState(for: landmarks) == .indexLeft)
   }
 
   @Test func detectStateScroll() async throws {
@@ -86,6 +85,68 @@ struct GestureControlTests {
     #expect(GestureProcessor.detectState(for: landmarks) == nil)
   }
 
+  @Test func detectStateNilWhenMiddleMCPMissing() async throws {
+    let landmarks = HandLandmarks(
+      thumbTip: CGPoint(x: 0.55, y: 0.2),
+      indexTip: CGPoint(x: 0.45, y: 0.45),
+      middleTip: CGPoint(x: 0.5, y: 0.45),
+      ringTip: CGPoint(x: 0.55, y: 0.45),
+      littleTip: CGPoint(x: 0.6, y: 0.45),
+      indexPIP: CGPoint(x: 0.45, y: 0.25),
+      middlePIP: CGPoint(x: 0.5, y: 0.25),
+      ringPIP: CGPoint(x: 0.55, y: 0.25),
+      littlePIP: CGPoint(x: 0.6, y: 0.25),
+      wrist: CGPoint(x: 0.5, y: 0.2),
+      middleMCP: nil
+    )
+    #expect(GestureProcessor.detectState(for: landmarks) == nil)
+  }
+
+  @Test func detectStateUnknownWhenIndexGestureIsTooVertical() async throws {
+    let landmarks = makeLandmarks(
+      indexOpen: true,
+      middleOpen: false,
+      ringOpen: false,
+      littleOpen: false,
+      indexTipOverride: CGPoint(x: 0.46, y: 0.45),
+      indexPIPOverride: CGPoint(x: 0.45, y: 0.28)
+    )
+    #expect(GestureProcessor.detectState(for: landmarks) == .unknown)
+  }
+
+  @Test func detectStateUnknownWhenIndexGestureDoesNotClearThreshold() async throws {
+    let landmarks = makeLandmarks(
+      indexOpen: true,
+      middleOpen: false,
+      ringOpen: false,
+      littleOpen: false,
+      indexTipOverride: CGPoint(x: 0.53, y: 0.33),
+      indexPIPOverride: CGPoint(x: 0.5, y: 0.24)
+    )
+    #expect(GestureProcessor.detectState(for: landmarks) == .unknown)
+  }
+
+  @Test func detectStateUnknownWhenHandScaleIsZero() async throws {
+    let landmarks = makeLandmarks(
+      indexOpen: true,
+      middleOpen: true,
+      ringOpen: true,
+      littleOpen: true,
+      wrist: CGPoint(x: 0.5, y: 0.2),
+      middleMCP: CGPoint(x: 0.5, y: 0.2)
+    )
+    #expect(GestureProcessor.detectState(for: landmarks) == .unknown)
+  }
+
+  @Test func detectStateUnknownForUnsupportedThreeFingerPose() async throws {
+    let landmarks = makeLandmarks(
+      indexOpen: true,
+      middleOpen: true,
+      ringOpen: true,
+      littleOpen: false
+    )
+    #expect(GestureProcessor.detectState(for: landmarks) == .unknown)
+  }
 }
 
 private func makeLandmarks(
@@ -94,12 +155,11 @@ private func makeLandmarks(
   ringOpen: Bool,
   littleOpen: Bool,
   thumbTip: CGPoint = CGPoint(x: 0.55, y: 0.2),
+  wrist: CGPoint = CGPoint(x: 0.5, y: 0.2),
+  middleMCP: CGPoint = CGPoint(x: 0.5, y: 0.3),
   indexTipOverride: CGPoint? = nil,
   indexPIPOverride: CGPoint? = nil
 ) -> HandLandmarks {
-  let wrist = CGPoint(x: 0.5, y: 0.2)
-  let middleMCP = CGPoint(x: 0.5, y: 0.3)
-
   func fingerPoints(open: Bool, baseX: CGFloat) -> (CGPoint, CGPoint) {
     if open {
       return (CGPoint(x: baseX, y: 0.45), CGPoint(x: baseX, y: 0.25))

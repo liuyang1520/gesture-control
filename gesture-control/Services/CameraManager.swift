@@ -18,6 +18,8 @@ class CameraManager: NSObject, ObservableObject {
 
   @Published var availableDevices: [AVCaptureDevice] = []
   @Published var selectedDeviceId: String?
+  @Published private(set) var cameraAuthorizationStatus: AVAuthorizationStatus =
+    AVCaptureDevice.authorizationStatus(for: .video)
   @Published var videoAspectRatio: CGFloat = 4.0 / 3.0
   @Published var shouldMirrorPreview: Bool = true
 
@@ -30,6 +32,7 @@ class CameraManager: NSObject, ObservableObject {
     .vga640x480,
     .medium,
   ]
+  private var deviceObservers: [NSObjectProtocol] = []
 
   // Delegate to pass the buffer to the detector
   weak var delegate: CameraManagerDelegate?
@@ -37,7 +40,14 @@ class CameraManager: NSObject, ObservableObject {
   override init() {
     super.init()
     refreshDevices()
+    observeDeviceChanges()
     checkPermissions()
+  }
+
+  deinit {
+    for observer in deviceObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
   }
 
   private func refreshDevices() {
@@ -46,21 +56,35 @@ class CameraManager: NSObject, ObservableObject {
       mediaType: .video,
       position: .unspecified
     )
-    self.availableDevices = discoverySession.devices
+    let devices = discoverySession.devices.sorted { lhs, rhs in
+      deviceSortKey(lhs) < deviceSortKey(rhs)
+    }
+    self.availableDevices = devices
 
-    // Default to first device if none selected
-    if selectedDeviceId == nil, let first = availableDevices.first {
-      self.selectedDeviceId = first.uniqueID
+    if let selectedDeviceId,
+      !devices.contains(where: { $0.uniqueID == selectedDeviceId })
+    {
+      self.selectedDeviceId = devices.first?.uniqueID
+    } else if selectedDeviceId == nil {
+      self.selectedDeviceId = devices.first?.uniqueID
     }
   }
 
   private func checkPermissions() {
     guard !Self.isRunningTests else { return }
-    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    let status = AVCaptureDevice.authorizationStatus(for: .video)
+    DispatchQueue.main.async {
+      self.cameraAuthorizationStatus = status
+    }
+
+    switch status {
     case .authorized:
       setupSession()
     case .notDetermined:
       AVCaptureDevice.requestAccess(for: .video) { granted in
+        DispatchQueue.main.async {
+          self.cameraAuthorizationStatus = granted ? .authorized : .denied
+        }
         if granted {
           self.setupSession()
         }
@@ -116,6 +140,47 @@ class CameraManager: NSObject, ObservableObject {
 
       self.session.commitConfiguration()
     }
+  }
+
+  private func deviceSortKey(_ device: AVCaptureDevice) -> (Int, Int, String) {
+    let positionPriority: Int
+    switch device.position {
+    case .front:
+      positionPriority = 0
+    case .unspecified:
+      positionPriority = 1
+    default:
+      positionPriority = 2
+    }
+
+    let typePriority = device.deviceType == .builtInWideAngleCamera ? 0 : 1
+    return (positionPriority, typePriority, device.localizedName)
+  }
+
+  private func observeDeviceChanges() {
+    let center = NotificationCenter.default
+    let queue = OperationQueue.main
+    deviceObservers = [
+      center.addObserver(
+        forName: AVCaptureDevice.wasConnectedNotification,
+        object: nil,
+        queue: queue
+      ) { [weak self] _ in
+        self?.refreshStatus()
+      },
+      center.addObserver(
+        forName: AVCaptureDevice.wasDisconnectedNotification,
+        object: nil,
+        queue: queue
+      ) { [weak self] _ in
+        self?.refreshStatus()
+      },
+    ]
+  }
+
+  func refreshStatus() {
+    refreshDevices()
+    checkPermissions()
   }
 
   private func applySessionPreset() {

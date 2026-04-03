@@ -6,37 +6,37 @@
 //
 
 #if os(macOS)
-import AppKit
-import SwiftUI
+  import AppKit
+  import SwiftUI
 
-struct MenuBarContent: View {
-  @ObservedObject var gestureProcessor: GestureProcessor
-  @Environment(\.openWindow) private var openWindow
+  struct MenuBarContent: View {
+    @ObservedObject var gestureProcessor: GestureProcessor
+    @Environment(\.openWindow) private var openWindow
 
-  var body: some View {
-    Button("Open App") {
-      NSApp.setActivationPolicy(.regular)
-      if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
-        window.makeKeyAndOrderFront(nil)
-      } else {
-        openWindow(id: "main")
+    var body: some View {
+      Button("Open App") {
+        NSApp.setActivationPolicy(.regular)
+        if let window = NSApp.windows.first(where: { $0.canBecomeKey }) {
+          window.makeKeyAndOrderFront(nil)
+        } else {
+          openWindow(id: "main")
+        }
+        NSApp.activate(ignoringOtherApps: true)
       }
-      NSApp.activate(ignoringOtherApps: true)
-    }
 
-    Divider()
+      Divider()
 
-    Toggle(
-      gestureProcessor.isEnabled ? "Disable Control" : "Enable Control",
-      isOn: $gestureProcessor.isEnabled
-    )
-    .toggleStyle(.checkbox)
+      Toggle(
+        gestureProcessor.isEnabled ? "Disable Control" : "Enable Control",
+        isOn: $gestureProcessor.isEnabled
+      )
+      .toggleStyle(.checkbox)
 
-    Divider()
+      Divider()
 
-    Button("Quit") {
-      NSApp.terminate(nil)
+      Button("Quit") {
+        NSApp.terminate(nil)
+      }
     }
   }
-}
 #endif

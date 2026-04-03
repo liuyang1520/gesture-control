@@ -101,14 +101,19 @@ Project structure:
 Tests:
 
 ```sh
-xcodebuild -project gesture-control.xcodeproj -scheme gesture-control -destination "platform=macOS" test -only-testing:gesture-controlTests
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project gesture-control.xcodeproj -scheme gesture-control -destination "platform=macOS" test -only-testing:gesture-controlTests
 ```
 
-Formatting and linting (if installed):
+Linting:
 
 ```sh
-xcrun swift-format format --in-place --recursive gesture-control
-xcrun swift-format lint --recursive gesture-control
+scripts/lint.sh
+```
+
+Auto-fix formatting:
+
+```sh
+scripts/lint.sh --fix
 ```
 
 ## Release Automation
