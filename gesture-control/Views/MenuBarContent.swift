@@ -28,7 +28,15 @@
 
       Toggle(
         gestureProcessor.isEnabled ? "Disable Control" : "Enable Control",
-        isOn: $gestureProcessor.isEnabled
+        isOn: Binding(
+          get: { gestureProcessor.isEnabled },
+          set: { isEnabled in
+            if isEnabled, !PermissionStatus.pointerControlGranted() {
+              _ = PermissionStatus.requestPointerControlAccess()
+            }
+            gestureProcessor.isEnabled = isEnabled
+          }
+        )
       )
       .toggleStyle(.checkbox)
 

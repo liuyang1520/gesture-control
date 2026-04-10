@@ -5,6 +5,7 @@ Control your Mac with simple hand gestures using the built-in camera. The app ru
 ## Features
 
 - **Pointer Control**: Move the cursor by moving your open palm.
+- **Eye Pointer Mode**: Use a short 5-point calibration to steer the cursor with your gaze from a webcam.
 - **Click**: Pinch your thumb and index finger to click.
 - **Scroll**: Make a fist (or a two-finger V) and move your hand up/down.
 - **Back/Forward**: Point your index finger left/right (other fingers closed).
@@ -42,8 +43,12 @@ If input isn't working:
 1. Launch the app to open the **Dashboard**.
 2. Toggle **Enable Control** to start the camera.
 3. Choose a camera if you have multiple sources.
-4. Use the **Calibrate / Tutorial** button for a guided walkthrough.
-5. Hover or click the info icons in the settings panel for parameter tips.
+4. Choose **Pointer Source**:
+   - **Hand Pointer** to move the cursor with an open palm.
+   - **Eye Pointer** to move the cursor with calibrated gaze.
+5. If you use **Eye Pointer**, run the 5-point eye calibration once for the selected camera.
+6. Use the **Calibrate / Tutorial** button for a guided walkthrough.
+7. Hover or click the info icons in the settings panel for parameter tips.
 
 ### Gesture Reference
 
@@ -54,10 +59,14 @@ If input isn't working:
 | Fist or V sign + up/down | Scroll | Speed is adjustable. |
 | Index finger left/right (others closed) | Back / Forward | Uses Command+[ and Command+]. |
 
+Eye Pointer mode keeps the hand gestures above for click, scroll, and navigation. Cursor movement comes from calibrated face and pupil tracking instead of the open-palm gesture.
+
 ## Settings Explained
 
 - **Enable Control**: Starts/stops the camera and gesture processing.
 - **Camera Source**: Selects which camera feed to use.
+- **Pointer Source**: Switches cursor movement between hand tracking and calibrated eye tracking.
+- **Eye Tracking**: Shows calibration status and lets you start or rerun the 5-point webcam calibration.
 - **Sensitivity**: Higher values move the cursor farther per hand movement.
 - **Scroll Speed**: Scales scroll velocity while using the scroll gesture.
 - **Smoothing (Stability)**: Higher values reduce jitter at the cost of latency.
@@ -86,6 +95,7 @@ This overlay helps you understand what the detector is seeing in real time.
 - **Click happens in the wrong place**: Make sure your palm is steady when pinching.
 - **Back/Forward feels reversed**: Use the front camera (mirrored) for intuitive direction; external cameras may feel less natural depending on orientation.
 - **Laggy or jittery cursor**: Adjust **Smoothing** and **Sensitivity**.
+- **Eye pointer drifts or feels inaccurate**: Re-run eye calibration with steady lighting and keep your head position consistent.
 
 ## Development Notes
 
@@ -117,6 +127,8 @@ scripts/lint.sh --fix
 ```
 
 ## Release Automation
+
+Current release tooling is set up for Developer ID signed direct distribution, not the Mac App Store. See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the release checklist, privacy/support page templates, and the current Mac App Store blocker.
 
 Use the release helper script to bump versions and optionally build/tag:
 
@@ -156,8 +168,12 @@ scripts/release.sh 0.1.0 --build 1 --push
 
 All processing runs locally on your Mac. Camera frames are analyzed in memory and are not sent to any external service.
 
+For a hostable privacy policy and support page template, see [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) and [`docs/SUPPORT.md`](docs/SUPPORT.md).
+
 ## Known Limitations
 
 - Single-hand detection only.
 - Cursor mapping uses the main display.
+- Eye pointer accuracy depends on lighting, seating position, and webcam quality.
 - Performance may degrade in low light or with busy backgrounds.
+- The current global cursor/click control model is designed for direct distribution and is not compatible with Mac App Store sandbox requirements.

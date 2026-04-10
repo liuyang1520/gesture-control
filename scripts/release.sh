@@ -16,6 +16,10 @@ Options:
   --notary-profile <name>  Keychain profile for notarytool (defaults to $NOTARY_PROFILE)
   --push              Push commit and tag to origin
   --gh                Create a GitHub release (requires gh + --build-app)
+
+Note:
+  This script is for Developer ID / direct distribution releases.
+  The current app architecture is not compatible with Mac App Store sandbox rules.
 EOF
 }
 

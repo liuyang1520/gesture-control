@@ -6,6 +6,7 @@
 //
 
 import Combine
+import Foundation
 
 @MainActor
 final class AppController: ObservableObject {
@@ -15,10 +16,18 @@ final class AppController: ObservableObject {
   private var cancellables = Set<AnyCancellable>()
   #if os(macOS)
     private var floatingPreviewController: FloatingPreviewWindowController?
+    private var eyeCalibrationController: EyeCalibrationWindowController?
   #endif
 
   init() {
     cameraManager.delegate = gestureProcessor
+
+    cameraManager.$selectedDeviceId
+      .removeDuplicates()
+      .sink { [weak self] selectedDeviceId in
+        self?.gestureProcessor.updateCurrentCameraDevice(id: selectedDeviceId)
+      }
+      .store(in: &cancellables)
 
     gestureProcessor.$isEnabled
       .removeDuplicates()
@@ -37,6 +46,7 @@ final class AppController: ObservableObject {
       gestureProcessor.$isEnabled
         .combineLatest(gestureProcessor.$isFloatingPreviewEnabled)
         .map { $0 && $1 }
+        .receive(on: DispatchQueue.main)
         .removeDuplicates()
         .sink { [weak self] shouldShow in
           guard let self else { return }
@@ -44,6 +54,19 @@ final class AppController: ObservableObject {
             self.showFloatingPreview()
           } else {
             self.hideFloatingPreview()
+          }
+        }
+        .store(in: &cancellables)
+
+      gestureProcessor.$isEyeCalibrationActive
+        .receive(on: DispatchQueue.main)
+        .removeDuplicates()
+        .sink { [weak self] isActive in
+          guard let self else { return }
+          if isActive {
+            self.showEyeCalibrationOverlay()
+          } else {
+            self.hideEyeCalibrationOverlay()
           }
         }
         .store(in: &cancellables)
@@ -63,6 +86,19 @@ final class AppController: ObservableObject {
 
     private func hideFloatingPreview() {
       floatingPreviewController?.hide()
+    }
+
+    private func showEyeCalibrationOverlay() {
+      if eyeCalibrationController == nil {
+        eyeCalibrationController = EyeCalibrationWindowController(
+          gestureProcessor: gestureProcessor
+        )
+      }
+      eyeCalibrationController?.show()
+    }
+
+    private func hideEyeCalibrationOverlay() {
+      eyeCalibrationController?.hide()
     }
   #endif
 }

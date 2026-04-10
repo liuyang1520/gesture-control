@@ -12,18 +12,54 @@ import Foundation
 
 class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
-  // Dependencies
-  private let detector = HandPoseDetector()
-  private let simulator = InputSimulator()
+  enum TrackingMode: String, CaseIterable, Identifiable, Hashable {
+    case handPointer
+    case eyePointer
 
-  // Settings
-  @Published var isEnabled: Bool = false
-  @Published var isFloatingPreviewEnabled: Bool = true
-  @Published var pointerSmoothing: Int = 1  // Lower default for snappier cursor
-  @Published var sensitivity: CGFloat = 2.0
-  @Published var scrollSpeed: Double = 20.0  // Increased default slightly
+    var id: String { rawValue }
 
-  // Processing
+    var title: String {
+      switch self {
+      case .handPointer:
+        return "Hand Pointer"
+      case .eyePointer:
+        return "Eye Pointer"
+      }
+    }
+  }
+
+  enum EyeCalibrationState: Equatable {
+    case needsCalibration
+    case calibrating(step: Int, total: Int)
+    case calibrated
+    case failed
+  }
+
+  enum GestureState {
+    case unknown
+    case pointer
+    case fist
+    case indexLeft
+    case indexRight
+    case scroll
+  }
+
+  enum OverlayAction: Equatable {
+    case idle
+    case move
+    case scroll
+    case scrollUp
+    case scrollDown
+    case back
+    case forward
+    case click
+  }
+
+  private enum PointerInputMode {
+    case hand
+    case eye
+  }
+
   private struct PendingFrame {
     let sampleBuffer: CMSampleBuffer
     let generation: Int
@@ -37,6 +73,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
         self.value = input
         return input
       }
+
       let filtered = alpha * input + (1.0 - alpha) * value
       self.value = filtered
       return filtered
@@ -72,7 +109,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
         dt = 1.0 / 60.0
       }
 
-      lastTimestamp = timestamp
+      self.lastTimestamp = timestamp
 
       let derivative = lastRaw.map { (input - $0) / dt } ?? 0
       lastRaw = input
@@ -98,6 +135,114 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     }
   }
 
+  private struct EyeCalibrationSession {
+    static let warmupFrames = 8
+    static let sampleFrames = 18
+
+    let targets: [CGPoint]
+    var targetIndex = 0
+    var warmupFrameCount = 0
+    var capturedVectors: [EyeFeatureVector] = []
+    var samples: [EyeCalibrationSample] = []
+
+    var totalSteps: Int { targets.count }
+
+    var currentTarget: CGPoint? {
+      guard targetIndex < targets.count else { return nil }
+      return targets[targetIndex]
+    }
+
+    var currentStep: Int {
+      min(targetIndex + 1, totalSteps)
+    }
+
+    mutating func ingest(_ feature: EyeFeatureVector) -> Outcome {
+      guard let target = currentTarget else { return .failed }
+
+      if warmupFrameCount < Self.warmupFrames {
+        warmupFrameCount += 1
+        return .collecting(step: currentStep, total: totalSteps)
+      }
+
+      capturedVectors.append(feature)
+      guard capturedVectors.count >= Self.sampleFrames else {
+        return .collecting(step: currentStep, total: totalSteps)
+      }
+
+      guard let averaged = EyeFeatureVector.average(capturedVectors) else {
+        return .failed
+      }
+
+      samples.append(EyeCalibrationSample(feature: averaged, target: target))
+      targetIndex += 1
+      warmupFrameCount = 0
+      capturedVectors.removeAll(keepingCapacity: true)
+
+      if targetIndex >= totalSteps {
+        guard let model = EyeCalibrationModel.fit(samples: samples) else {
+          return .failed
+        }
+        return .completed(model)
+      }
+
+      guard let nextTarget = currentTarget else { return .failed }
+      return .advanced(
+        step: currentStep,
+        total: totalSteps,
+        nextTarget: nextTarget
+      )
+    }
+
+    enum Outcome {
+      case collecting(step: Int, total: Int)
+      case advanced(step: Int, total: Int, nextTarget: CGPoint)
+      case completed(EyeCalibrationModel)
+      case failed
+    }
+  }
+
+  private struct PersistedEyeCalibrationStore: Codable {
+    var modelsByDevice: [String: EyeCalibrationModel] = [:]
+  }
+
+  // Dependencies
+  private let detector = HandPoseDetector()
+  private let eyeDetector = EyePoseDetector()
+  private let simulator = InputSimulator()
+
+  // Settings
+  @Published var isEnabled: Bool = false
+  @Published var isFloatingPreviewEnabled: Bool = true
+  @Published var pointerSmoothing: Int = 1
+  @Published var sensitivity: CGFloat = 2.0
+  @Published var scrollSpeed: Double = 20.0
+  @Published var trackingMode: TrackingMode = .handPointer {
+    didSet {
+      guard trackingMode != oldValue else { return }
+      resetPointerTracking()
+      if trackingMode == .eyePointer, eyeCalibrationModel == nil, !isEyeCalibrationActive {
+        publishEyeCalibrationState(
+          .needsCalibration,
+          message: "Run the 5-point calibration to enable eye-based cursor movement."
+        )
+      }
+    }
+  }
+
+  @Published private(set) var eyeCalibrationState: EyeCalibrationState = .needsCalibration
+  @Published private(set) var eyeCalibrationMessage: String =
+    "Run the 5-point calibration to enable eye-based cursor movement."
+  @Published private(set) var eyeCalibrationTarget: CGPoint?
+  @Published private(set) var isEyeCalibrationActive = false
+  @Published private(set) var overlayAction: OverlayAction = .idle
+  @Published private(set) var overlayHandBounds: CGRect?
+  @Published private(set) var overlayHandPoint: CGPoint?
+
+  var hasEyeCalibration: Bool {
+    eyeCalibrationModel != nil
+  }
+
+  // Processing
   private let visionQueue = DispatchQueue(label: "gesture.vision", qos: .userInitiated)
   private let bufferQueue = DispatchQueue(label: "gesture.buffer")
   private var isProcessingFrame = false
@@ -109,13 +254,14 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private var lastPointerScreenPoint: CGPoint?
   private var lastSmoothedPoint: CGPoint?
   private var lastWristTimestamp: TimeInterval?
+  private var lastEyeTimestamp: TimeInterval?
   private var pointerFilterX = OneEuroFilter(minCutoff: 1.2, beta: 0.6, dCutoff: 1.0)
   private var pointerFilterY = OneEuroFilter(minCutoff: 1.2, beta: 0.6, dCutoff: 1.0)
   private var lastClickTime: Date = .distantPast
   private var lastNavigationTime: Date = .distantPast
+  private var isPinchActive = false
   private let clickCooldown: TimeInterval = 0.35
   private let navigationCooldown: TimeInterval = 1.0
-  private var isPinchActive = false
   private let pinchStartThreshold: CGFloat = 0.35
   private let pinchReleaseThreshold: CGFloat = 0.45
   private let pointerDeadzone: CGFloat = 0.0015
@@ -126,51 +272,32 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private let pointerDerivativeCutoff: Double = 1.0
   private let scrollVelocityDeadzone: Double = 0.15
   private let scrollVelocityScale: Double = 100.0
+  private let eyePointerMinCutoff: Double = 0.22
+  private let eyePointerBeta: Double = 0.08
+  private let eyePointerDeadzone: CGFloat = 0.0025
+  private let eyePointerStepLimit: CGFloat = 100.0
+  private let eyeObservationTimeout: TimeInterval = 0.45
+  private let eyeCalibrationStoreKey = "gesture-control.eye-calibration.v1"
+  private var currentCameraDeviceID: String?
+  private var eyeCalibrationModel: EyeCalibrationModel?
+  private var eyeCalibrationSession: EyeCalibrationSession?
 
-  enum GestureState {
-    case unknown
-    case pointer  // Open Palm
-    case fist  // All Closed (Scroll)
-    case indexLeft  // Index Left (Back)
-    case indexRight  // Index Right (Forward)
-    // Two Fingers (Victory) - Kept for user preference or legacy, but detecting 'Fist' for scroll now per request.
-    case scroll
-  }
-
-  enum OverlayAction: Equatable {
-    case idle
-    case move
-    case scroll
-    case scrollUp
-    case scrollDown
-    case back
-    case forward
-    case click
-  }
+  // Gesture tracking
+  private var currentState: GestureState = .unknown
+  private var stateConfidenceCounter = 0
+  private let stateConfidenceThreshold = 1
+  private var pendingState: GestureState = .unknown
+  private var previousState: GestureState = .unknown
+  private var overlayOverride: (action: OverlayAction, expiresAt: TimeInterval)?
+  private var lastScrollDirection: OverlayAction?
+  private var lastScrollDirectionTimestamp: TimeInterval = 0
+  private let scrollDirectionHold: TimeInterval = 0.4
 
   static func detectState(for landmarks: HandLandmarks) -> GestureState? {
     guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else { return nil }
     return detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
   }
 
-  private var currentState: GestureState = .unknown
-
-  private var stateConfidenceCounter = 0
-  private let stateConfidenceThreshold = 1
-  // Lowered to cut gesture-to-action latency.
-  private var pendingState: GestureState = .unknown
-
-  // To track state transitions
-  private var previousState: GestureState = .unknown
-  @Published private(set) var overlayAction: OverlayAction = .idle
-  @Published private(set) var overlayHandBounds: CGRect?
-  @Published private(set) var overlayHandPoint: CGPoint?
-  private var overlayOverride: (action: OverlayAction, expiresAt: TimeInterval)?
-  private var lastScrollDirection: OverlayAction?
-  private var lastScrollDirectionTimestamp: TimeInterval = 0
-  private let scrollDirectionHold: TimeInterval = 0.4
-
-  // Logic
   func didOutput(sampleBuffer: CMSampleBuffer) {
     guard isEnabled else { return }
     var shouldProcess = false
@@ -193,6 +320,96 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     }
   }
 
+  func startEyeCalibration() {
+    let session = EyeCalibrationSession(targets: Self.eyeCalibrationTargets)
+    eyeCalibrationSession = session
+    eyeCalibrationModel = nil
+    resetPointerTracking()
+    eyeCalibrationTarget = session.currentTarget
+    isEyeCalibrationActive = true
+    publishEyeCalibrationState(
+      .calibrating(step: session.currentStep, total: session.totalSteps),
+      message: "Look at each dot until it advances.",
+      target: session.currentTarget,
+      isActive: true
+    )
+  }
+
+  func cancelEyeCalibration() {
+    eyeCalibrationSession = nil
+    eyeCalibrationTarget = nil
+    isEyeCalibrationActive = false
+    publishEyeCalibrationState(
+      eyeCalibrationModel == nil ? .needsCalibration : .calibrated,
+      message: eyeCalibrationModel == nil
+        ? "Calibration stopped. Run the 5-point flow to enable eye-based cursor movement."
+        : "Eye tracking is calibrated for the selected camera.",
+      target: nil,
+      isActive: false
+    )
+  }
+
+  func updateCurrentCameraDevice(id: String?) {
+    guard currentCameraDeviceID != id else { return }
+    currentCameraDeviceID = id
+    eyeCalibrationSession = nil
+    eyeCalibrationTarget = nil
+    isEyeCalibrationActive = false
+    resetPointerTracking()
+
+    guard let id else {
+      eyeCalibrationModel = nil
+      publishEyeCalibrationState(
+        .needsCalibration,
+        message: "Select a camera before calibrating eye tracking."
+      )
+      return
+    }
+
+    let store = loadEyeCalibrationStore()
+    eyeCalibrationModel = store.modelsByDevice[id]
+
+    if eyeCalibrationModel == nil {
+      publishEyeCalibrationState(
+        .needsCalibration,
+        message: "Run the 5-point calibration for this camera before using eye pointer mode."
+      )
+    } else {
+      publishEyeCalibrationState(
+        .calibrated,
+        message: "Eye tracking is calibrated for the selected camera."
+      )
+    }
+  }
+
+  func resetState() {
+    lastLandmarks = nil
+    resetPointerTracking()
+    currentState = .unknown
+    pendingState = .unknown
+    previousState = .unknown
+    stateConfidenceCounter = 0
+    lastClickTime = .distantPast
+    lastNavigationTime = .distantPast
+    isPinchActive = false
+    overlayOverride = nil
+    lastScrollDirection = nil
+    lastScrollDirectionTimestamp = 0
+    if isEyeCalibrationActive {
+      cancelEyeCalibration()
+    }
+    DispatchQueue.main.async {
+      self.overlayAction = .idle
+      self.overlayHandBounds = nil
+      self.overlayHandPoint = nil
+    }
+
+    bufferQueue.sync {
+      processingGeneration += 1
+      pendingFrame = nil
+    }
+  }
+
   private func processSampleBufferAsync(_ sampleBuffer: CMSampleBuffer, generation: Int) {
     visionQueue.async { [weak self] in
       guard let self else { return }
@@ -207,14 +424,24 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
       let timestamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
       let safeTimestamp = timestamp.isFinite ? timestamp : 0
+      let shouldProcessEyes = self.trackingMode == .eyePointer || self.isEyeCalibrationActive
 
-      guard let landmarks = self.detector.process(sampleBuffer: sampleBuffer) else {
-        self.clearOverlayForMissingHand()
-        self.lastLandmarks = nil
-        return
+      let eyeObservation: EyeTrackingObservation?
+      if shouldProcessEyes {
+        eyeObservation = self.eyeDetector.process(sampleBuffer: sampleBuffer)
+      } else {
+        eyeObservation = nil
       }
 
-      self.processGestures(landmarks: landmarks, timestamp: safeTimestamp)
+      let handLandmarks = self.detector.process(sampleBuffer: sampleBuffer)
+
+      self.processEyeObservation(eyeObservation, timestamp: safeTimestamp)
+
+      if let handLandmarks {
+        self.processGestures(landmarks: handLandmarks, timestamp: safeTimestamp)
+      } else {
+        self.handleMissingHand()
+      }
     }
   }
 
@@ -235,43 +462,16 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     }
   }
 
-  func resetState() {
-    lastLandmarks = nil
-    lastPointerScreenPoint = nil
-    lastSmoothedPoint = nil
-    lastWristTimestamp = nil
-    pointerFilterX.reset()
-    pointerFilterY.reset()
-    currentState = .unknown
-    pendingState = .unknown
-    previousState = .unknown
-    stateConfidenceCounter = 0
-    lastClickTime = .distantPast
-    lastNavigationTime = .distantPast
-    isPinchActive = false
-    overlayOverride = nil
-    lastScrollDirection = nil
-    lastScrollDirectionTimestamp = 0
-    DispatchQueue.main.async {
-      self.overlayAction = .idle
-      self.overlayHandBounds = nil
-      self.overlayHandPoint = nil
-    }
-
-    bufferQueue.sync {
-      processingGeneration += 1
-      pendingFrame = nil
-    }
-  }
-
   private func processGestures(landmarks: HandLandmarks, timestamp: TimeInterval) {
-    guard let wrist = landmarks.wrist,
-      let middleMCP = landmarks.middleMCP
-    else { return }
+    guard let wrist = landmarks.wrist, let middleMCP = landmarks.middleMCP else {
+      handleMissingHand()
+      return
+    }
 
     let detectedState = Self.detectState(for: landmarks, wrist: wrist, middleMCP: middleMCP)
     let handScale = hypot(wrist.x - middleMCP.x, wrist.y - middleMCP.y)
     let allowPinchClick = detectedState != .fist && detectedState != .scroll
+
     if handScale > 0 {
       handlePinchClick(
         landmarks: landmarks,
@@ -282,8 +482,6 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       isPinchActive = false
     }
 
-    // --- 2. State Hysteresis (Debounce) ---
-
     if detectedState == pendingState {
       stateConfidenceCounter += 1
     } else {
@@ -291,48 +489,81 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       stateConfidenceCounter = 0
     }
 
-    if stateConfidenceCounter >= stateConfidenceThreshold {
-      // State Transition
-      if currentState != pendingState {
-        previousState = currentState
-        currentState = pendingState
-
-        handleStateTransition(from: previousState, to: currentState, landmarks: landmarks)
-      }
+    if stateConfidenceCounter >= stateConfidenceThreshold, currentState != pendingState {
+      previousState = currentState
+      currentState = pendingState
+      handleStateTransition(from: previousState, to: currentState)
     }
 
-    // --- 3. Continuous Actions ---
-
     switch currentState {
-    case .pointer:
-      handlePointerBehavior(landmarks: landmarks, timestamp: timestamp)
-    case .fist:
-      // Fist is now Scroll per user request.
-      handleScrollBehavior(landmarks: landmarks, timestamp: timestamp)
-    case .scroll:
-      // Victory is also Scroll.
+    case .pointer where trackingMode == .handPointer:
+      handleHandPointerBehavior(landmarks: landmarks, timestamp: timestamp)
+    case .fist, .scroll:
       handleScrollBehavior(landmarks: landmarks, timestamp: timestamp)
     default:
       break
     }
 
     updateOverlay(for: currentState, landmarks: landmarks)
-
     lastLandmarks = landmarks
+  }
+
+  private func processEyeObservation(
+    _ observation: EyeTrackingObservation?,
+    timestamp: TimeInterval
+  ) {
+    guard let observation else {
+      handleMissingEyeObservation(timestamp: timestamp)
+      return
+    }
+
+    lastEyeTimestamp = timestamp
+
+    let wasCalibrating = isEyeCalibrationActive
+    if wasCalibrating, let feature = observation.featureVector {
+      captureCalibration(feature: feature)
+    }
+
+    if wasCalibrating {
+      return
+    }
+
+    guard
+      trackingMode == .eyePointer,
+      !isEyeCalibrationActive,
+      let eyeCalibrationModel,
+      let feature = observation.featureVector
+    else {
+      return
+    }
+
+    let normalizedPoint = eyeCalibrationModel.map(feature: feature)
+    let smoothedPoint = smooth(
+      point: normalizedPoint,
+      timestamp: timestamp,
+      mode: .eye
+    )
+    let targetPoint = mapNormalizedScreenPointToScreen(smoothedPoint)
+    let stabilizedPoint = limitPointerStep(to: targetPoint, maxDistance: eyePointerStepLimit)
+
+    guard shouldMovePointer(to: stabilizedPoint, minimumDistance: 2.0) else { return }
+
+    lastPointerScreenPoint = stabilizedPoint
+    simulator.moveMouse(to: stabilizedPoint)
   }
 
   private static func detectState(for landmarks: HandLandmarks, wrist: CGPoint, middleMCP: CGPoint)
     -> GestureState
   {
     func dist(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
-      return hypot(p1.x - p2.x, p1.y - p2.y)
+      hypot(p1.x - p2.x, p1.y - p2.y)
     }
 
     let handScale = dist(wrist, middleMCP)
     guard handScale > 0 else { return .unknown }
 
     func isFingerOpen(tip: CGPoint?, pip: CGPoint?) -> Bool {
-      guard let tip = tip, let pip = pip else { return false }
+      guard let tip, let pip else { return false }
       let tipDist = dist(tip, wrist)
       let pipDist = dist(pip, wrist)
       return tipDist > pipDist && tipDist > (handScale * 1.1)
@@ -371,25 +602,21 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     return .unknown
   }
 
-  private func handleStateTransition(
-    from old: GestureState, to new: GestureState, landmarks: HandLandmarks
-  ) {
+  private func handleStateTransition(from old: GestureState, to new: GestureState) {
     if new == .fist || new == .scroll {
       lastWristTimestamp = nil
     }
 
-    // Navigation One-Shots
-    // We add a cooldown to prevent rapid firing if state flutters
-    if Date().timeIntervalSince(lastNavigationTime) > navigationCooldown {
-      if new == .indexLeft {
-        print("Index Left -> Back")
-        simulator.navigateBack()
-        lastNavigationTime = Date()
-      } else if new == .indexRight {
-        print("Index Right -> Forward")
-        simulator.navigateForward()
-        lastNavigationTime = Date()
-      }
+    if Date().timeIntervalSince(lastNavigationTime) <= navigationCooldown {
+      return
+    }
+
+    if new == .indexLeft {
+      simulator.navigateBack()
+      lastNavigationTime = Date()
+    } else if new == .indexRight {
+      simulator.navigateForward()
+      lastNavigationTime = Date()
     }
   }
 
@@ -428,7 +655,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   private func overlayAction(for state: GestureState, now: TimeInterval) -> OverlayAction {
     switch state {
     case .pointer:
-      return .move
+      return trackingMode == .handPointer ? .move : .idle
     case .indexLeft:
       return .back
     case .indexRight:
@@ -460,43 +687,41 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       landmarks.middleMCP,
     ].compactMap { $0 }
 
-    guard let minX = points.map(\.x).min(),
+    guard
+      let minX = points.map(\.x).min(),
       let maxX = points.map(\.x).max(),
       let minY = points.map(\.y).min(),
       let maxY = points.map(\.y).max()
-    else { return nil }
+    else {
+      return nil
+    }
 
     let width = maxX - minX
     let height = maxY - minY
     let padding = max(width, height) * 0.15
-    let paddedMinX = max(0, minX - padding)
-    let paddedMinY = max(0, minY - padding)
-    let paddedMaxX = min(1, maxX + padding)
-    let paddedMaxY = min(1, maxY + padding)
 
     return CGRect(
-      x: paddedMinX,
-      y: paddedMinY,
-      width: paddedMaxX - paddedMinX,
-      height: paddedMaxY - paddedMinY
+      x: max(0, minX - padding),
+      y: max(0, minY - padding),
+      width: min(1, maxX + padding) - max(0, minX - padding),
+      height: min(1, maxY + padding) - max(0, minY - padding)
     )
   }
 
-  private func handlePointerBehavior(landmarks: HandLandmarks, timestamp: TimeInterval) {
+  private func handleHandPointerBehavior(landmarks: HandLandmarks, timestamp: TimeInterval) {
     guard let pointerPoint = palmCenter(for: landmarks) ?? landmarks.indexTip else { return }
 
-    // Move Pointer
-    let smoothedPoint = smooth(point: pointerPoint, timestamp: timestamp)
-    let targetPoint = mapToScreen(point: smoothedPoint)
+    let smoothedPoint = smooth(point: pointerPoint, timestamp: timestamp, mode: .hand)
+    let targetPoint = mapHandPointToScreen(point: smoothedPoint)
     lastPointerScreenPoint = targetPoint
     simulator.moveMouse(to: targetPoint)
   }
 
   private func handleScrollBehavior(landmarks: HandLandmarks, timestamp: TimeInterval) {
-    // Scroll using Fist Movement (Up/Down)
     guard let wrist = landmarks.wrist else { return }
 
-    guard let lastWrist = lastLandmarks?.wrist,
+    guard
+      let lastWrist = lastLandmarks?.wrist,
       let lastTimestamp = lastWristTimestamp
     else {
       lastWristTimestamp = timestamp
@@ -527,6 +752,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
       isPinchActive = false
       return
     }
+
     guard let thumbTip = landmarks.thumbTip, let indexTip = landmarks.indexTip else {
       isPinchActive = false
       return
@@ -542,21 +768,24 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
 
     if distance <= pinchStartThreshold {
       isPinchActive = true
-      if Date().timeIntervalSince(lastClickTime) > clickCooldown {
-        let clickPoint =
-          lastPointerScreenPoint
-          ?? {
-            if let palmPoint = palmCenter(for: landmarks) {
-              return mapToScreen(point: palmPoint)
-            }
-            if let indexTip = landmarks.indexTip { return mapToScreen(point: indexTip) }
-            return nil
-          }()
-        if let clickPoint {
-          simulator.click(at: clickPoint)
-          lastClickTime = Date()
-          setOverlayOverride(.click, duration: 0.6)
-        }
+      guard Date().timeIntervalSince(lastClickTime) > clickCooldown else { return }
+
+      let clickPoint =
+        lastPointerScreenPoint
+        ?? {
+          if let palmPoint = palmCenter(for: landmarks) {
+            return mapHandPointToScreen(point: palmPoint)
+          }
+          if let indexTip = landmarks.indexTip {
+            return mapHandPointToScreen(point: indexTip)
+          }
+          return nil
+        }()
+
+      if let clickPoint {
+        simulator.click(at: clickPoint)
+        lastClickTime = Date()
+        setOverlayOverride(.click, duration: 0.6)
       }
     }
   }
@@ -569,16 +798,21 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     )
   }
 
-  private func pointerFilterParameters() -> (minCutoff: Double, beta: Double) {
-    let clamped = min(max(pointerSmoothing, 1), 20)
-    let t = Double(clamped - 1) / 19.0
-    let minCutoff = pointerMaxCutoff - t * (pointerMaxCutoff - pointerMinCutoff)
-    let beta = pointerMaxBeta - t * (pointerMaxBeta - pointerMinBeta)
-    return (minCutoff, beta)
+  private func filterParameters(for mode: PointerInputMode) -> (minCutoff: Double, beta: Double) {
+    switch mode {
+    case .hand:
+      let clamped = min(max(pointerSmoothing, 1), 20)
+      let t = Double(clamped - 1) / 19.0
+      let minCutoff = pointerMaxCutoff - t * (pointerMaxCutoff - pointerMinCutoff)
+      let beta = pointerMaxBeta - t * (pointerMaxBeta - pointerMinBeta)
+      return (minCutoff, beta)
+    case .eye:
+      return (eyePointerMinCutoff, eyePointerBeta)
+    }
   }
 
-  private func smooth(point: CGPoint, timestamp: TimeInterval) -> CGPoint {
-    let params = pointerFilterParameters()
+  private func smooth(point: CGPoint, timestamp: TimeInterval, mode: PointerInputMode) -> CGPoint {
+    let params = filterParameters(for: mode)
     pointerFilterX.minCutoff = params.minCutoff
     pointerFilterY.minCutoff = params.minCutoff
     pointerFilterX.beta = params.beta
@@ -598,7 +832,14 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     let dx = filteredPoint.x - lastPoint.x
     let dy = filteredPoint.y - lastPoint.y
     let distance = hypot(dx, dy)
-    let deadzone = pointerDeadzone / max(sensitivity, 0.1)
+    let deadzone: CGFloat
+
+    switch mode {
+    case .hand:
+      deadzone = pointerDeadzone / max(sensitivity, 0.1)
+    case .eye:
+      deadzone = eyePointerDeadzone
+    }
 
     if distance < deadzone {
       return lastPoint
@@ -608,7 +849,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     return filteredPoint
   }
 
-  private func mapToScreen(point: CGPoint) -> CGPoint {
+  private func mapHandPointToScreen(point: CGPoint) -> CGPoint {
     let activeRect = CGRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
     let normalizedX = (point.x - activeRect.minX) / activeRect.width
     let normalizedY = (point.y - activeRect.minY) / activeRect.height
@@ -620,9 +861,154 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     let clampedY = min(max(scaledY, 0), 1)
 
     let screenFrame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    let screenX = (1 - clampedX) * screenFrame.width
-    let screenY = (1 - clampedY) * screenFrame.height
-
-    return CGPoint(x: screenX, y: screenY)
+    return CGPoint(
+      x: (1 - clampedX) * screenFrame.width,
+      y: (1 - clampedY) * screenFrame.height
+    )
   }
+
+  private func mapNormalizedScreenPointToScreen(_ point: CGPoint) -> CGPoint {
+    let clampedX = min(max(point.x, 0), 1)
+    let clampedY = min(max(point.y, 0), 1)
+    let screenFrame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    return CGPoint(
+      x: clampedX * screenFrame.width,
+      y: clampedY * screenFrame.height
+    )
+  }
+
+  private func limitPointerStep(to targetPoint: CGPoint, maxDistance: CGFloat) -> CGPoint {
+    guard let lastPointerScreenPoint else { return targetPoint }
+
+    let dx = targetPoint.x - lastPointerScreenPoint.x
+    let dy = targetPoint.y - lastPointerScreenPoint.y
+    let distance = hypot(dx, dy)
+    guard distance > maxDistance, distance > 0 else { return targetPoint }
+
+    let scale = maxDistance / distance
+    return CGPoint(
+      x: lastPointerScreenPoint.x + dx * scale,
+      y: lastPointerScreenPoint.y + dy * scale
+    )
+  }
+
+  private func shouldMovePointer(to point: CGPoint, minimumDistance: CGFloat) -> Bool {
+    guard let lastPointerScreenPoint else { return true }
+    return hypot(point.x - lastPointerScreenPoint.x, point.y - lastPointerScreenPoint.y)
+      >= minimumDistance
+  }
+
+  private func resetPointerTracking() {
+    lastPointerScreenPoint = nil
+    lastSmoothedPoint = nil
+    lastWristTimestamp = nil
+    lastEyeTimestamp = nil
+    pointerFilterX.reset()
+    pointerFilterY.reset()
+  }
+
+  private func handleMissingHand() {
+    lastLandmarks = nil
+    lastWristTimestamp = nil
+    currentState = .unknown
+    pendingState = .unknown
+    stateConfidenceCounter = 0
+    clearOverlayForMissingHand()
+  }
+
+  private func handleMissingEyeObservation(timestamp: TimeInterval) {
+    guard trackingMode == .eyePointer, !isEyeCalibrationActive else { return }
+    guard let lastEyeTimestamp, timestamp - lastEyeTimestamp > eyeObservationTimeout else { return }
+    resetPointerTracking()
+  }
+
+  private func captureCalibration(feature: EyeFeatureVector) {
+    guard var session = eyeCalibrationSession else { return }
+
+    switch session.ingest(feature) {
+    case .collecting(let step, let total):
+      eyeCalibrationSession = session
+      publishEyeCalibrationState(
+        .calibrating(step: step, total: total),
+        message: "Look at each dot until it advances.",
+        target: session.currentTarget,
+        isActive: true
+      )
+
+    case .advanced(let step, let total, let nextTarget):
+      eyeCalibrationSession = session
+      publishEyeCalibrationState(
+        .calibrating(step: step, total: total),
+        message: "Hold steady while the next point is captured.",
+        target: nextTarget,
+        isActive: true
+      )
+
+    case .completed(let model):
+      eyeCalibrationSession = nil
+      eyeCalibrationModel = model
+      saveEyeCalibration(model)
+      publishEyeCalibrationState(
+        .calibrated,
+        message: "Eye tracking is calibrated for the selected camera.",
+        target: nil,
+        isActive: false
+      )
+
+    case .failed:
+      eyeCalibrationSession = nil
+      eyeCalibrationModel = nil
+      publishEyeCalibrationState(
+        .failed,
+        message: "Calibration failed. Re-run the 5-point flow in steady lighting.",
+        target: nil,
+        isActive: false
+      )
+    }
+  }
+
+  private func publishEyeCalibrationState(
+    _ state: EyeCalibrationState,
+    message: String,
+    target: CGPoint? = nil,
+    isActive: Bool? = nil
+  ) {
+    DispatchQueue.main.async {
+      self.eyeCalibrationState = state
+      self.eyeCalibrationMessage = message
+      self.eyeCalibrationTarget = target
+      if let isActive {
+        self.isEyeCalibrationActive = isActive
+      }
+    }
+  }
+
+  private func loadEyeCalibrationStore() -> PersistedEyeCalibrationStore {
+    let defaults = UserDefaults.standard
+    guard let data = defaults.data(forKey: eyeCalibrationStoreKey) else {
+      return PersistedEyeCalibrationStore()
+    }
+
+    return (try? JSONDecoder().decode(PersistedEyeCalibrationStore.self, from: data))
+      ?? PersistedEyeCalibrationStore()
+  }
+
+  private func saveEyeCalibration(_ model: EyeCalibrationModel) {
+    guard let currentCameraDeviceID else { return }
+
+    var store = loadEyeCalibrationStore()
+    store.modelsByDevice[currentCameraDeviceID] = model
+
+    if let data = try? JSONEncoder().encode(store) {
+      UserDefaults.standard.set(data, forKey: eyeCalibrationStoreKey)
+    }
+  }
+
+  private static let eyeCalibrationTargets: [CGPoint] = [
+    CGPoint(x: 0.50, y: 0.50),
+    CGPoint(x: 0.18, y: 0.18),
+    CGPoint(x: 0.82, y: 0.18),
+    CGPoint(x: 0.18, y: 0.82),
+    CGPoint(x: 0.82, y: 0.82),
+  ]
 }

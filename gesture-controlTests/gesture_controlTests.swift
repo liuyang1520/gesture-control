@@ -147,6 +147,34 @@ struct GestureControlTests {
     )
     #expect(GestureProcessor.detectState(for: landmarks) == .unknown)
   }
+
+  @Test func eyeCalibrationModelFitsLinearMapping() async throws {
+    let samples = eyeCalibrationTrainingVectors.map { feature in
+      EyeCalibrationSample(feature: feature, target: expectedCalibrationTarget(for: feature))
+    }
+
+    let model = try #require(EyeCalibrationModel.fit(samples: samples))
+    let probe = EyeFeatureVector(
+      faceCenterX: 0.51,
+      faceCenterY: 0.41,
+      pupilOffsetX: 0.02,
+      pupilOffsetY: -0.03
+    )
+    let mappedPoint = model.map(feature: probe)
+    let expectedPoint = expectedCalibrationTarget(for: probe)
+
+    #expect(abs(mappedPoint.x - expectedPoint.x) < 0.0001)
+    #expect(abs(mappedPoint.y - expectedPoint.y) < 0.0001)
+  }
+
+  @Test func eyeCalibrationModelNeedsFiveSamples() async throws {
+    let samples = Array(
+      eyeCalibrationTrainingVectors.prefix(4).map { feature in
+        EyeCalibrationSample(feature: feature, target: expectedCalibrationTarget(for: feature))
+      }
+    )
+    #expect(EyeCalibrationModel.fit(samples: samples) == nil)
+  }
 }
 
 private func makeLandmarks(
@@ -187,4 +215,29 @@ private func makeLandmarks(
     wrist: wrist,
     middleMCP: middleMCP
   )
+}
+
+private let eyeCalibrationTrainingVectors: [EyeFeatureVector] = [
+  EyeFeatureVector(faceCenterX: 0.40, faceCenterY: 0.45, pupilOffsetX: -0.05, pupilOffsetY: 0.02),
+  EyeFeatureVector(faceCenterX: 0.55, faceCenterY: 0.35, pupilOffsetX: 0.04, pupilOffsetY: -0.01),
+  EyeFeatureVector(faceCenterX: 0.62, faceCenterY: 0.58, pupilOffsetX: 0.03, pupilOffsetY: 0.05),
+  EyeFeatureVector(faceCenterX: 0.35, faceCenterY: 0.68, pupilOffsetX: -0.04, pupilOffsetY: -0.03),
+  EyeFeatureVector(faceCenterX: 0.48, faceCenterY: 0.52, pupilOffsetX: 0.01, pupilOffsetY: -0.04),
+]
+
+private func expectedCalibrationTarget(for feature: EyeFeatureVector) -> CGPoint {
+  let x =
+    0.05
+    + 0.42 * feature.faceCenterX
+    + 0.18 * feature.faceCenterY
+    + 0.75 * feature.pupilOffsetX
+    - 0.12 * feature.pupilOffsetY
+  let y =
+    0.08
+    + 0.15 * feature.faceCenterX
+    + 0.56 * feature.faceCenterY
+    - 0.10 * feature.pupilOffsetX
+    + 0.62 * feature.pupilOffsetY
+
+  return CGPoint(x: x, y: y)
 }

@@ -14,7 +14,7 @@ struct DashboardView: View {
   @ObservedObject var gestureProcessor: GestureProcessor
   @ObservedObject var cameraManager: CameraManager
   @State private var showOnboarding = false
-  @State private var accessibilityGranted = PermissionStatus.accessibilityGranted()
+  @State private var controlPermissionGranted = PermissionStatus.controlPermissionGranted()
 
   var body: some View {
     GeometryReader { proxy in
@@ -66,15 +66,15 @@ struct DashboardView: View {
           SetupCallout(notice: cameraIssue)
         }
 
-        if let accessibilityIssue {
-          SetupCallout(notice: accessibilityIssue)
+        if let controlPermissionIssue {
+          SetupCallout(notice: controlPermissionIssue)
         }
 
         HStack(spacing: 8) {
-          Toggle("Enable Control", isOn: $gestureProcessor.isEnabled)
+          Toggle("Enable Control", isOn: enableControlBinding)
             .toggleStyle(.switch)
             .frame(maxWidth: .infinity, alignment: .leading)
-          InfoTip(text: "Starts the camera and begins interpreting gestures.")
+          InfoTip(text: "Starts the camera and requests pointer-control permission if needed.")
         }
 
         HStack(spacing: 8) {
@@ -85,6 +85,20 @@ struct DashboardView: View {
         }
 
         Divider()
+
+        VStack(alignment: .leading, spacing: 8) {
+          SettingsHeader(
+            title: "Pointer Source",
+            help: "Choose whether cursor movement follows your hand or a calibrated eye tracker."
+          )
+
+          Picker("Pointer Source", selection: $gestureProcessor.trackingMode) {
+            ForEach(GestureProcessor.TrackingMode.allCases) { mode in
+              Text(mode.title).tag(mode)
+            }
+          }
+          .pickerStyle(.segmented)
+        }
 
         VStack(alignment: .leading, spacing: 6) {
           SettingsHeader(
@@ -124,17 +138,23 @@ struct DashboardView: View {
           }
         }
 
-        VStack(alignment: .leading, spacing: 6) {
-          SettingsHeader(
-            title: "Sensitivity",
-            help: "Higher values make the cursor move farther for the same hand motion."
-          )
-          Slider(value: $gestureProcessor.sensitivity, in: 0.5...3.0) {
-            Text("Speed")
+        if gestureProcessor.trackingMode == .eyePointer {
+          eyeTrackingSection
+        }
+
+        if gestureProcessor.trackingMode == .handPointer {
+          VStack(alignment: .leading, spacing: 6) {
+            SettingsHeader(
+              title: "Sensitivity",
+              help: "Higher values make the cursor move farther for the same hand motion."
+            )
+            Slider(value: $gestureProcessor.sensitivity, in: 0.5...3.0) {
+              Text("Speed")
+            }
+            Text("Value: \(gestureProcessor.sensitivity, specifier: "%.1f")")
+              .font(.caption)
+              .foregroundColor(.secondary)
           }
-          Text("Value: \(gestureProcessor.sensitivity, specifier: "%.1f")")
-            .font(.caption)
-            .foregroundColor(.secondary)
         }
 
         VStack(alignment: .leading, spacing: 6) {
@@ -150,25 +170,39 @@ struct DashboardView: View {
             .foregroundColor(.secondary)
         }
 
-        VStack(alignment: .leading, spacing: 6) {
-          SettingsHeader(
-            title: "Smoothing",
-            help: "Higher values smooth jitter but add a bit of lag."
-          )
-          Stepper(
-            "Stability: \(gestureProcessor.pointerSmoothing)",
-            value: $gestureProcessor.pointerSmoothing,
-            in: 1...20
-          )
+        if gestureProcessor.trackingMode == .handPointer {
+          VStack(alignment: .leading, spacing: 6) {
+            SettingsHeader(
+              title: "Smoothing",
+              help: "Higher values smooth jitter but add a bit of lag."
+            )
+            Stepper(
+              "Stability: \(gestureProcessor.pointerSmoothing)",
+              value: $gestureProcessor.pointerSmoothing,
+              in: 1...20
+            )
+          }
         }
 
         Button(action: { showOnboarding = true }) {
-          Label("Calibrate / Tutorial", systemImage: "hand.raised.fill")
-            .frame(maxWidth: .infinity)
+          HStack(spacing: 12) {
+            Label("Open Guide", systemImage: "book.closed.fill")
+            Spacer()
+            if guideChecklistComplete {
+              Label("Ready", systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+            }
+          }
+          .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .help("Walk through gesture examples and permissions.")
+        .help("Walk through permissions, gestures, and setup tips.")
+
+        Divider()
+
+        AboutSection(versionDescription: versionDescription)
       }
       .padding()
     }
@@ -213,6 +247,38 @@ struct DashboardView: View {
     }
   }
 
+  private var eyeTrackingSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .center, spacing: 8) {
+        SettingsHeader(
+          title: "Eye Tracking",
+          help:
+            "Webcam eye tracking needs a short 5-point calibration before cursor movement is enabled."
+        )
+        StatusTag(title: "Alpha", tint: .orange)
+      }
+
+      SetupCallout(notice: eyeCalibrationNotice)
+
+      Text(
+        "Eye Pointer keeps the hand gestures for click, scroll, and navigation. Pinch thumb and index finger to click."
+      )
+        .font(.caption)
+        .foregroundColor(.secondary)
+
+      Button(action: startEyeCalibration) {
+        Label(eyeCalibrationButtonTitle, systemImage: "eye")
+          .frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(
+        gestureProcessor.isEyeCalibrationActive
+          || cameraManager.cameraAuthorizationStatus != .authorized
+          || cameraManager.availableDevices.isEmpty
+      )
+    }
+  }
+
   private var cameraIssue: DashboardNotice? {
     switch cameraManager.cameraAuthorizationStatus {
     case .denied, .restricted:
@@ -243,16 +309,16 @@ struct DashboardView: View {
     }
   }
 
-  private var accessibilityIssue: DashboardNotice? {
-    guard !accessibilityGranted else { return nil }
+  private var controlPermissionIssue: DashboardNotice? {
+    guard !controlPermissionGranted else { return nil }
     return DashboardNotice(
-      title: "Accessibility access is required",
+      title: "Pointer control permission is required",
       message:
-        "Pointer movement, clicks, scrolling, and browser navigation stay disabled until the app is allowed in System Settings.",
+        "Pointer movement, clicks, scrolling, and browser navigation stay disabled until macOS allows synthetic mouse and keyboard events for this app.",
       symbol: "hand.point.up.left.fill",
       tint: .orange,
-      buttonTitle: "Open Accessibility Settings",
-      action: SystemSettingsNavigator.openAccessibilityPrivacy
+      buttonTitle: "Allow Pointer Control",
+      action: requestPointerControlAccess
     )
   }
 
@@ -284,13 +350,29 @@ struct DashboardView: View {
         tint: .white
       )
     case .authorized:
-      guard cameraManager.availableDevices.isEmpty else { return nil }
-      return DashboardNotice(
-        title: "No camera available",
-        message: "Connect or enable a camera to continue.",
-        symbol: "video.slash.fill",
-        tint: .white
-      )
+      guard !cameraManager.availableDevices.isEmpty else {
+        return DashboardNotice(
+          title: "No camera available",
+          message: "Connect or enable a camera to continue.",
+          symbol: "video.slash.fill",
+          tint: .white
+        )
+      }
+
+      if gestureProcessor.trackingMode == .eyePointer
+        && !gestureProcessor.hasEyeCalibration
+        && !gestureProcessor.isEyeCalibrationActive
+      {
+        return DashboardNotice(
+          title: "Eye calibration required",
+          message: "Run the 5-point calibration before cursor movement can follow your gaze.",
+          symbol: "eye.fill",
+          tint: .white,
+          buttonTitle: eyeCalibrationButtonTitle,
+          action: startEyeCalibration
+        )
+      }
+      return nil
     @unknown default:
       return DashboardNotice(
         title: "Camera unavailable",
@@ -302,8 +384,97 @@ struct DashboardView: View {
   }
 
   private func refreshEnvironmentState() {
-    accessibilityGranted = PermissionStatus.accessibilityGranted()
+    controlPermissionGranted = PermissionStatus.controlPermissionGranted()
     cameraManager.refreshStatus()
+  }
+
+  private var guideChecklistComplete: Bool {
+    cameraManager.cameraAuthorizationStatus == .authorized && controlPermissionGranted
+  }
+
+  private var enableControlBinding: Binding<Bool> {
+    Binding(
+      get: { gestureProcessor.isEnabled },
+      set: { isEnabled in
+        if isEnabled {
+          requestPointerControlAccess()
+        }
+        gestureProcessor.isEnabled = isEnabled
+      }
+    )
+  }
+
+  private func requestPointerControlAccess() {
+    if !PermissionStatus.controlPermissionGranted() {
+      _ = PermissionStatus.requestPointerControlAccess()
+    }
+    refreshEnvironmentState()
+    if !controlPermissionGranted {
+      SystemSettingsNavigator.openPointerControlPrivacy()
+    }
+  }
+
+  private var eyeCalibrationNotice: DashboardNotice {
+    switch gestureProcessor.eyeCalibrationState {
+    case .calibrating(let step, let total):
+      return DashboardNotice(
+        title: "Calibrating \(step) of \(total)",
+        message: gestureProcessor.eyeCalibrationMessage,
+        symbol: "eye.circle.fill",
+        tint: .blue
+      )
+    case .calibrated:
+      return DashboardNotice(
+        title: "Calibration Ready",
+        message: gestureProcessor.eyeCalibrationMessage,
+        symbol: "checkmark.circle.fill",
+        tint: .green
+      )
+    case .failed:
+      return DashboardNotice(
+        title: "Calibration Failed",
+        message: gestureProcessor.eyeCalibrationMessage,
+        symbol: "exclamationmark.triangle.fill",
+        tint: .orange
+      )
+    case .needsCalibration:
+      return DashboardNotice(
+        title: "Calibration Needed",
+        message: gestureProcessor.eyeCalibrationMessage,
+        symbol: "eye.fill",
+        tint: .orange
+      )
+    }
+  }
+
+  private var eyeCalibrationButtonTitle: String {
+    if gestureProcessor.isEyeCalibrationActive {
+      return "Calibrating..."
+    }
+    if gestureProcessor.hasEyeCalibration {
+      return "Recalibrate Eye Tracking"
+    }
+    if gestureProcessor.isEnabled {
+      return "Start Eye Calibration"
+    }
+    return "Enable Control and Start Calibration"
+  }
+
+  private func startEyeCalibration() {
+    if !gestureProcessor.isEnabled {
+      gestureProcessor.isEnabled = true
+    }
+    gestureProcessor.startEyeCalibration()
+  }
+
+  private var versionDescription: String {
+    let shortVersion =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      ?? "0.0.0"
+    let build =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+      ?? "0"
+    return "Version \(shortVersion) (\(build))"
   }
 }
 
@@ -418,20 +589,45 @@ enum PermissionStatus {
   static func accessibilityGranted() -> Bool {
     AXIsProcessTrusted()
   }
+
+  static func pointerControlGranted() -> Bool {
+    if #available(macOS 10.15, *) {
+      return CGPreflightPostEventAccess()
+    }
+    return accessibilityGranted()
+  }
+
+  static func controlPermissionGranted() -> Bool {
+    accessibilityGranted() || pointerControlGranted()
+  }
+
+  @discardableResult
+  static func requestPointerControlAccess() -> Bool {
+    if controlPermissionGranted() {
+      return true
+    }
+
+    if #available(macOS 10.15, *) {
+      return CGRequestPostEventAccess()
+    }
+
+    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    return AXIsProcessTrustedWithOptions(options)
+  }
 }
 
 enum SystemSettingsNavigator {
   private static let cameraPrivacyURL = URL(
     string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
-  private static let accessibilityPrivacyURL = URL(
+  private static let pointerControlPrivacyURL = URL(
     string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
 
   static func openCameraPrivacy() {
     open(url: cameraPrivacyURL)
   }
 
-  static func openAccessibilityPrivacy() {
-    open(url: accessibilityPrivacyURL)
+  static func openPointerControlPrivacy() {
+    open(url: pointerControlPrivacyURL)
   }
 
   private static func open(url: URL?) {
@@ -442,5 +638,89 @@ enum SystemSettingsNavigator {
     _ = NSWorkspace.shared.open(
       URL(fileURLWithPath: "/System/Applications/System Settings.app")
     )
+  }
+}
+
+private struct StatusTag: View {
+  let title: String
+  let tint: Color
+
+  var body: some View {
+    Text(title.uppercased())
+      .font(.caption2.weight(.bold))
+      .foregroundColor(tint)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(tint.opacity(0.12))
+      .clipShape(Capsule())
+  }
+}
+
+private struct AboutSection: View {
+  let versionDescription: String
+  private let repositoryURL = URL(string: "https://github.com/liuyang1520/gesture-control")!
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("About")
+        .font(.headline)
+
+      Text(
+        "Gesture Control is a camera-first macOS utility for cursor movement, clicks, scrolling, and browser navigation using hand gestures, plus an experimental eye pointer mode."
+      )
+      .font(.subheadline)
+      .foregroundColor(.secondary)
+
+      VStack(alignment: .leading, spacing: 8) {
+        AboutRow(title: "Author", value: "Marvin Liu")
+        AboutRow(title: "Build", value: versionDescription)
+        AboutRow(
+          title: "Bundle ID",
+          value: Bundle.main.bundleIdentifier ?? "com.madeliciousoft.gesture-control"
+        )
+
+        Link(destination: repositoryURL) {
+          HStack(spacing: 8) {
+            Text("GitHub")
+              .foregroundColor(.primary)
+            Spacer()
+            Label("liuyang1520/gesture-control", systemImage: "link")
+              .foregroundColor(.accentColor)
+          }
+          .font(.subheadline)
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(14)
+      .background(Color.secondary.opacity(0.08))
+      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+      Text("All tracking runs on-device. Camera frames stay local to your Mac.")
+        .font(.caption)
+        .foregroundColor(.secondary)
+
+      Text(
+        "Global pointer control uses synthetic input events and requires macOS pointer-control permission."
+      )
+      .font(.caption)
+      .foregroundColor(.secondary)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct AboutRow: View {
+  let title: String
+  let value: String
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Text(title)
+        .foregroundColor(.secondary)
+      Spacer()
+      Text(value)
+        .multilineTextAlignment(.trailing)
+    }
+    .font(.subheadline)
   }
 }

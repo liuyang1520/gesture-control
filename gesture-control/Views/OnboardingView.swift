@@ -13,7 +13,7 @@ struct OnboardingView: View {
   @Binding var isPresented: Bool
   @State private var step = 0
   @State private var hasCameraAccess = false
-  @State private var hasAccessibilityAccess = false
+  @State private var hasControlPermissionAccess = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -80,7 +80,7 @@ struct OnboardingView: View {
           Text("Welcome to Gesture Control")
             .font(.largeTitle.weight(.semibold))
           Text(
-            "Use your camera to move the pointer, click, scroll, and navigate with a few hand gestures."
+            "Use your camera for hand gestures, or calibrate an optional eye pointer mode for cursor movement."
           )
           .font(.body)
           .foregroundColor(.secondary)
@@ -91,12 +91,14 @@ struct OnboardingView: View {
         IntroBullet(
           symbol: "camera.viewfinder",
           title: "Live camera tracking",
-          message: "The app reads a single camera feed and detects your hand entirely on-device."
+          message:
+            "The app reads a single camera feed and detects your hand and face entirely on-device."
         )
         IntroBullet(
           symbol: "cursorarrow.motionlines",
           title: "Pointer and click control",
-          message: "Open palm moves the cursor, and a thumb-index pinch triggers a click."
+          message:
+            "Open palm moves the cursor in hand mode, or you can calibrate an eye pointer and keep pinch for clicks."
         )
         IntroBullet(
           symbol: "arrow.up.and.down",
@@ -124,12 +126,13 @@ struct OnboardingView: View {
       )
 
       PermissionCard(
-        title: "Accessibility",
-        message: "Required to move the cursor, click, scroll, and send navigation shortcuts.",
+        title: "Pointer Control",
+        message:
+          "Required to move the cursor, click, scroll, and send navigation shortcuts with synthetic input events.",
         symbol: "hand.point.up.left.fill",
-        isGranted: hasAccessibilityAccess,
-        buttonTitle: "Open Accessibility Settings",
-        action: SystemSettingsNavigator.openAccessibilityPrivacy
+        isGranted: hasControlPermissionAccess,
+        buttonTitle: "Allow Pointer Control",
+        action: requestPointerControlAccess
       )
     }
   }
@@ -137,7 +140,7 @@ struct OnboardingView: View {
   private var gesturesStep: some View {
     VStack(alignment: .leading, spacing: 18) {
       Text(
-        "These are the gestures the detector expects. Keep your hand centered and well lit for the most stable tracking."
+        "These are the default hand gestures. If you switch to Eye Pointer in the dashboard, run the 5-point calibration first, then keep using these hand gestures for click, scroll, and navigation."
       )
       .foregroundColor(.secondary)
 
@@ -209,9 +212,9 @@ struct OnboardingView: View {
     case 0:
       return "A quick walkthrough before you turn on gesture tracking."
     case 1:
-      return "Gesture Control needs Camera and Accessibility access to work correctly."
+      return "Gesture Control needs Camera and pointer-control permission to work correctly."
     default:
-      return "Review the default gestures before you start calibrating."
+      return "Review the default gestures before you start controlling your Mac."
     }
   }
 
@@ -232,7 +235,17 @@ struct OnboardingView: View {
 
   private func refreshPermissionState() {
     hasCameraAccess = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
-    hasAccessibilityAccess = PermissionStatus.accessibilityGranted()
+    hasControlPermissionAccess = PermissionStatus.controlPermissionGranted()
+  }
+
+  private func requestPointerControlAccess() {
+    if !PermissionStatus.controlPermissionGranted() {
+      _ = PermissionStatus.requestPointerControlAccess()
+    }
+    refreshPermissionState()
+    if !hasControlPermissionAccess {
+      SystemSettingsNavigator.openPointerControlPrivacy()
+    }
   }
 }
 

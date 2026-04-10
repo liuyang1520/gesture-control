@@ -8,21 +8,33 @@
 import ApplicationServices
 
 class InputSimulator {
+  private func makeEventSource() -> CGEventSource? {
+    CGEventSource(stateID: .hidSystemState) ?? CGEventSource(stateID: .combinedSessionState)
+  }
 
   func moveMouse(to point: CGPoint) {
     // CoreGraphics uses top-left as (0,0), same as our mapped coordinates usually.
     // But we must ensure the point is within screen bounds.
     let event = CGEvent(
-      mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)
+      mouseEventSource: makeEventSource(),
+      mouseType: .mouseMoved,
+      mouseCursorPosition: point,
+      mouseButton: .left
+    )
     event?.post(tap: .cghidEventTap)
   }
 
   func click(at point: CGPoint) {
     let mouseDown = CGEvent(
-      mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point,
+      mouseEventSource: makeEventSource(),
+      mouseType: .leftMouseDown,
+      mouseCursorPosition: point,
       mouseButton: .left)
     let mouseUp = CGEvent(
-      mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left
+      mouseEventSource: makeEventSource(),
+      mouseType: .leftMouseUp,
+      mouseCursorPosition: point,
+      mouseButton: .left
     )
 
     mouseDown?.post(tap: .cghidEventTap)
@@ -46,7 +58,13 @@ class InputSimulator {
 
   func scroll(dx: Int32, dy: Int32) {
     let event = CGEvent(
-      scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)
+      scrollWheelEvent2Source: makeEventSource(),
+      units: .pixel,
+      wheelCount: 2,
+      wheel1: dy,
+      wheel2: dx,
+      wheel3: 0
+    )
     event?.post(tap: .cghidEventTap)
   }
 
@@ -70,7 +88,7 @@ class InputSimulator {
   }
 
   private func simulateKeyCombo(keyCode: CGKeyCode, modifiers: CGEventFlags) {
-    let source = CGEventSource(stateID: .hidSystemState)
+    let source = makeEventSource()
 
     guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
       let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
