@@ -15,7 +15,7 @@ Control your Mac with simple hand gestures using the built-in camera. The app ru
 ## Requirements
 
 - macOS with a camera (built-in or external).
-- Accessibility permission to generate mouse/keyboard input.
+- Pointer-control permission to generate mouse/keyboard input.
 - Xcode to build and run the app.
 
 ## Build and Run
@@ -30,7 +30,7 @@ Control your Mac with simple hand gestures using the built-in camera. The app ru
 The app needs two system permissions:
 
 - **Camera**: Needed to detect your hand.
-- **Accessibility**: Needed to move the mouse and simulate key presses.
+- **Pointer Control**: Needed to move the mouse and simulate key presses.
 
 If input isn't working:
 
@@ -47,7 +47,7 @@ If input isn't working:
    - **Hand Pointer** to move the cursor with an open palm.
    - **Eye Pointer** to move the cursor with calibrated gaze.
 5. If you use **Eye Pointer**, run the 5-point eye calibration once for the selected camera.
-6. Use the **Calibrate / Tutorial** button for a guided walkthrough.
+6. Use the **Open Guide** button for a guided walkthrough.
 7. Hover or click the info icons in the settings panel for parameter tips.
 
 ### Gesture Reference
@@ -91,7 +91,7 @@ This overlay helps you understand what the detector is seeing in real time.
 ## Troubleshooting
 
 - **Camera is black or "Camera Off"**: Check camera permissions in System Settings.
-- **Cursor doesn't move**: Ensure Accessibility permissions are granted.
+- **Cursor doesn't move**: Ensure pointer-control permission is granted in System Settings.
 - **Click happens in the wrong place**: Make sure your palm is steady when pinching.
 - **Back/Forward feels reversed**: Use the front camera (mirrored) for intuitive direction; external cameras may feel less natural depending on orientation.
 - **Laggy or jittery cursor**: Adjust **Smoothing** and **Sensitivity**.
@@ -128,7 +128,7 @@ scripts/lint.sh --fix
 
 ## Release Automation
 
-Current release tooling is set up for Developer ID signed direct distribution, not the Mac App Store. See [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for the release checklist, privacy/support page templates, and the current Mac App Store blocker.
+The helper script below is for local and Developer ID builds. For Mac App Store submission, archive the app in Xcode Organizer and use App Store Connect.
 
 Use the release helper script to bump versions and optionally build/tag:
 
@@ -136,7 +136,7 @@ Use the release helper script to bump versions and optionally build/tag:
 scripts/release.sh 0.1.0 --build 1
 ```
 
-Release builds should be signed with a Developer ID identity; use `--sign-id` (and optionally `--notarize`). For local testing, pass `--unsigned`.
+Direct-distribution release builds should be signed with a Developer ID identity; use `--sign-id` (and optionally `--notarize`). For local testing, pass `--unsigned`.
 
 Build and zip a macOS app (unsigned, local only):
 
@@ -168,7 +168,7 @@ scripts/release.sh 0.1.0 --build 1 --push
 
 All processing runs locally on your Mac. Camera frames are analyzed in memory and are not sent to any external service.
 
-For a hostable privacy policy and support page template, see [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) and [`docs/SUPPORT.md`](docs/SUPPORT.md).
+For hostable privacy policy and support pages, see [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) and [`docs/SUPPORT.md`](docs/SUPPORT.md).
 
 ## Known Limitations
 
@@ -176,4 +176,4 @@ For a hostable privacy policy and support page template, see [`docs/PRIVACY_POLI
 - Cursor mapping uses the main display.
 - Eye pointer accuracy depends on lighting, seating position, and webcam quality.
 - Performance may degrade in low light or with busy backgrounds.
-- The current global cursor/click control model is designed for direct distribution and is not compatible with Mac App Store sandbox requirements.
+- Final App Review approval for global synthetic input still needs to be validated against Apple’s current review policies.

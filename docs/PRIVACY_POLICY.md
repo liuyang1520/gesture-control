@@ -1,8 +1,6 @@
 # Privacy Policy
 
-Replace bracketed placeholders before publishing.
-
-Effective date: 2026-04-07
+Effective date: 2026-05-09
 
 ## Overview
 
@@ -20,12 +18,12 @@ Gesture Control requests camera access to analyze live video frames for gesture 
 - Camera frames are not uploaded to external servers.
 - Camera frames are not retained after processing unless the user independently records them outside the app.
 
-## Accessibility Access
+## Pointer Control Permission
 
-Gesture Control requests Accessibility permission on macOS so it can move the pointer, click, scroll, and send navigation shortcuts on the user’s Mac.
+Gesture Control requests macOS pointer-control permission so it can move the pointer, click, scroll, and send navigation shortcuts on the user’s Mac.
 
-- Accessibility permission is used only to perform the input actions requested by the user through the app’s controls.
-- Accessibility data is not transmitted to external services.
+- Pointer-control permission is used only to perform the input actions requested by the user through the app’s controls.
+- Permission status is not transmitted to external services.
 
 ## Data Storage
 
@@ -47,4 +45,4 @@ If this policy changes, the updated version will be published at the same URL wi
 
 ## Contact
 
-For privacy questions, contact: [support@example.com]
+For privacy questions, contact: liuyang1520@gmail.com

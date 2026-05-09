@@ -263,8 +263,8 @@ struct DashboardView: View {
       Text(
         "Eye Pointer keeps the hand gestures for click, scroll, and navigation. Pinch thumb and index finger to click."
       )
-        .font(.caption)
-        .foregroundColor(.secondary)
+      .font(.caption)
+      .foregroundColor(.secondary)
 
       Button(action: startEyeCalibration) {
         Label(eyeCalibrationButtonTitle, systemImage: "eye")
@@ -318,7 +318,7 @@ struct DashboardView: View {
       symbol: "hand.point.up.left.fill",
       tint: .orange,
       buttonTitle: "Allow Pointer Control",
-      action: requestPointerControlAccess
+      action: { _ = requestPointerControlAccess() }
     )
   }
 
@@ -385,6 +385,9 @@ struct DashboardView: View {
 
   private func refreshEnvironmentState() {
     controlPermissionGranted = PermissionStatus.controlPermissionGranted()
+    if !controlPermissionGranted, gestureProcessor.isEnabled {
+      gestureProcessor.isEnabled = false
+    }
     cameraManager.refreshStatus()
   }
 
@@ -397,21 +400,24 @@ struct DashboardView: View {
       get: { gestureProcessor.isEnabled },
       set: { isEnabled in
         if isEnabled {
-          requestPointerControlAccess()
+          guard requestPointerControlAccess() else {
+            gestureProcessor.isEnabled = false
+            return
+          }
         }
         gestureProcessor.isEnabled = isEnabled
       }
     )
   }
 
-  private func requestPointerControlAccess() {
-    if !PermissionStatus.controlPermissionGranted() {
-      _ = PermissionStatus.requestPointerControlAccess()
-    }
+  @discardableResult
+  private func requestPointerControlAccess() -> Bool {
+    let isGranted = PermissionStatus.requestPointerControlAccess()
     refreshEnvironmentState()
     if !controlPermissionGranted {
       SystemSettingsNavigator.openPointerControlPrivacy()
     }
+    return isGranted || controlPermissionGranted
   }
 
   private var eyeCalibrationNotice: DashboardNotice {
@@ -461,6 +467,7 @@ struct DashboardView: View {
   }
 
   private func startEyeCalibration() {
+    guard requestPointerControlAccess() else { return }
     if !gestureProcessor.isEnabled {
       gestureProcessor.isEnabled = true
     }
@@ -586,33 +593,21 @@ private struct InfoTip: View {
 }
 
 enum PermissionStatus {
-  static func accessibilityGranted() -> Bool {
-    AXIsProcessTrusted()
-  }
-
   static func pointerControlGranted() -> Bool {
-    if #available(macOS 10.15, *) {
-      return CGPreflightPostEventAccess()
-    }
-    return accessibilityGranted()
-  }
-
-  static func controlPermissionGranted() -> Bool {
-    accessibilityGranted() || pointerControlGranted()
+    CGPreflightPostEventAccess()
   }
 
   @discardableResult
   static func requestPointerControlAccess() -> Bool {
-    if controlPermissionGranted() {
+    if pointerControlGranted() {
       return true
     }
 
-    if #available(macOS 10.15, *) {
-      return CGRequestPostEventAccess()
-    }
+    return CGRequestPostEventAccess()
+  }
 
-    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-    return AXIsProcessTrustedWithOptions(options)
+  static func controlPermissionGranted() -> Bool {
+    pointerControlGranted()
   }
 }
 

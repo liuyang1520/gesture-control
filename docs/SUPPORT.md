@@ -1,24 +1,22 @@
 # Support
 
-Replace bracketed placeholders before publishing.
-
 ## Contact
 
-- Support email: [support@example.com]
-- Website: [https://example.com]
+- Support email: liuyang1520@gmail.com
+- Website: https://github.com/liuyang1520/gesture-control
 
 ## Requirements
 
 - macOS 14.0 or later
 - A built-in or external camera
-- Accessibility permission for global pointer control features
+- Pointer-control permission for global pointer control features
 
 ## Permissions
 
 Gesture Control uses:
 
 - Camera permission for hand and eye tracking
-- Accessibility permission for global pointer movement, click, scroll, and shortcut actions
+- Pointer-control permission for global pointer movement, click, scroll, and shortcut actions
 
 ## Troubleshooting
 
@@ -31,8 +29,9 @@ Gesture Control uses:
 ### Cursor control does not work
 
 - Check System Settings > Privacy & Security > Accessibility.
-- Make sure Gesture Control is enabled in the Accessibility list.
+- Make sure Gesture Control is enabled in the list.
 - Reopen the app if the permission was granted while it was running.
+- If needed, reset the TCC record with `tccutil reset PostEvent com.madeliciousoft.gesture-control`.
 
 ### Eye tracking feels inaccurate
 
@@ -50,4 +49,4 @@ Gesture Control uses:
 
 - Cursor mapping currently targets the main display.
 - Eye pointer quality depends on webcam quality, lighting, and seating position.
-- Global pointer control requires direct distribution and Accessibility permission on macOS.
+- Final App Review acceptance for global pointer control still needs to be validated in App Store submission.

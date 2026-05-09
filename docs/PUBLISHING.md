@@ -1,10 +1,13 @@
 # Publishing Guide
 
-This project is ready to polish and ship as a directly distributed macOS app.
+This branch is configured as a sandbox-enabled macOS app and can be prepared for either Mac App Store submission or direct distribution.
 
 ## Supported Distribution Channel
 
-Use Developer ID signing plus notarization for release builds.
+Use one of these paths:
+
+- Mac App Store: Archive in Xcode Organizer, validate, and submit through App Store Connect.
+- Direct distribution: Use Developer ID signing plus notarization for release builds.
 
 Typical flow:
 
@@ -21,41 +24,39 @@ scripts/release.sh 0.1.1 --build 3 --build-app --sign-id "Developer ID Applicati
 
 ## Mac App Store Status
 
-The current app architecture is not compatible with Mac App Store submission.
+The project is now configured with App Sandbox enabled and uses the `PostEvent` permission path for global synthetic input.
 
-Why:
+What changed:
 
-- Mac App Store macOS apps must use App Sandbox.
-- Apple’s App Sandbox documentation lists "use of accessibility APIs in assistive apps" as an incompatible sandbox use case.
-- This app depends on Accessibility trust plus global `CGEvent` posting to move the cursor, click, scroll, and send navigation shortcuts outside the app.
+- The app entitlement file now enables `com.apple.security.app-sandbox`.
+- Runtime permission checks use `CGPreflightPostEventAccess` / `CGRequestPostEventAccess`.
+- The UI and docs now describe pointer-control permission rather than Accessibility trust.
 
-Apple references:
+Remaining validation:
 
-- App Sandbox incompatible operations:
-  https://developer.apple.com/documentation/security/app_sandbox
-- Diagnosing and fixing sandbox violations:
-  https://developer.apple.com/documentation/security/discovering-and-diagnosing-app-sandbox-violations
-- App information and required App Store Connect metadata:
-  https://developer.apple.com/help/app-store-connect/create-an-app-record/view-and-edit-app-information/
+- Apple’s public guidance and DTS comments suggest `PostEvent` is narrower than full Accessibility automation, but final App Review acceptance for a camera-driven global pointer-control app still has to be confirmed with a real submission.
+- Treat this branch as an App Store compatibility candidate, not a guaranteed approval outcome.
 
 ## Release Checklist
 
 - Confirm the app icon, version, and build number are correct.
 - Run lint and the macOS unit test target.
 - Verify camera permission messaging is user-facing and accurate.
+- Verify pointer-control permission prompting and recovery after `tccutil reset PostEvent <bundle-id>`.
 - Host a privacy policy page based on `docs/PRIVACY_POLICY.md`.
 - Host a support page based on `docs/SUPPORT.md`.
 - Capture screenshots that show the dashboard, calibration flow, and permissions guidance.
 - Prepare concise release notes and a support email address.
-- Sign and notarize the final `.app`.
+- For direct distribution, sign and notarize the final `.app`.
+- For Mac App Store, create an Archive in Xcode and submit through Organizer.
 
-## If You Still Want Mac App Store Distribution
+## References
 
-You will need to redesign the product around App Sandbox constraints.
-
-Minimum scope change:
-
-- Remove global cursor control and global synthetic input outside the app.
-- Remove the requirement for Accessibility trust as a core feature.
-- Re-scope interaction to an in-app experience or another sandbox-compatible feature set.
-- Re-test the app with App Sandbox enabled before creating a Mac App Store-specific target or branch.
+- App Sandbox:
+  https://developer.apple.com/documentation/security/app-sandbox
+- Protecting user data with App Sandbox:
+  https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox
+- CGRequestPostEventAccess:
+  https://developer.apple.com/documentation/coregraphics/cgrequestposteventaccess%28%29
+- App Store Connect app information:
+  https://developer.apple.com/help/app-store-connect/create-an-app-record/view-and-edit-app-information/

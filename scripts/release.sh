@@ -18,8 +18,8 @@ Options:
   --gh                Create a GitHub release (requires gh + --build-app)
 
 Note:
-  This script is for Developer ID / direct distribution releases.
-  The current app architecture is not compatible with Mac App Store sandbox rules.
+  This script is for local and Developer ID release builds.
+  Use Xcode Organizer and App Store Connect for Mac App Store submission.
 EOF
 }
 
