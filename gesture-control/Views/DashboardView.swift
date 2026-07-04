@@ -263,8 +263,8 @@ struct DashboardView: View {
       Text(
         "Eye Pointer keeps the hand gestures for click, scroll, and navigation. Pinch thumb and index finger to click."
       )
-        .font(.caption)
-        .foregroundColor(.secondary)
+      .font(.caption)
+      .foregroundColor(.secondary)
 
       Button(action: startEyeCalibration) {
         Label(eyeCalibrationButtonTitle, systemImage: "eye")
@@ -611,7 +611,8 @@ enum PermissionStatus {
       return CGRequestPostEventAccess()
     }
 
-    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    let options =
+      [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     return AXIsProcessTrustedWithOptions(options)
   }
 }

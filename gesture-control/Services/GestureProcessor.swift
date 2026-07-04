@@ -243,7 +243,7 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
   }
 
   // Processing
-  private let visionQueue = DispatchQueue(label: "gesture.vision", qos: .userInitiated)
+  private let visionQueue = DispatchQueue(label: "gesture.vision", qos: .userInteractive)
   private let bufferQueue = DispatchQueue(label: "gesture.buffer")
   private var isProcessingFrame = false
   private var pendingFrame: PendingFrame?
@@ -912,7 +912,9 @@ class GestureProcessor: ObservableObject, CameraManagerDelegate {
     lastWristTimestamp = nil
     currentState = .unknown
     pendingState = .unknown
+    previousState = .unknown
     stateConfidenceCounter = 0
+    isPinchActive = false
     clearOverlayForMissingHand()
   }
 

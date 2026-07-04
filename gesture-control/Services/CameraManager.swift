@@ -99,14 +99,6 @@ class CameraManager: NSObject, ObservableObject {
     let devices = availableDevices
 
     sessionQueue.async {
-      self.session.beginConfiguration()
-      self.applySessionPreset()
-
-      // Remove existing inputs
-      for input in self.session.inputs {
-        self.session.removeInput(input)
-      }
-
       // Find device
       let device: AVCaptureDevice?
       if let id = selectedId, let found = devices.first(where: { $0.uniqueID == id }) {
@@ -117,20 +109,40 @@ class CameraManager: NSObject, ObservableObject {
           ?? devices.first
       }
 
+      // Device connect/disconnect notifications re-run setup; skip the
+      // teardown/rebuild when the active camera has not changed.
+      if let videoDevice = device,
+        let currentInput = self.session.inputs.first as? AVCaptureDeviceInput,
+        self.session.inputs.count == 1,
+        currentInput.device.uniqueID == videoDevice.uniqueID,
+        self.session.outputs.contains(self.videoOutput)
+      {
+        return
+      }
+
+      self.session.beginConfiguration()
+      self.applySessionPreset()
+
+      // Remove existing inputs
+      for input in self.session.inputs {
+        self.session.removeInput(input)
+      }
+
       if let videoDevice = device, let videoInput = try? AVCaptureDeviceInput(device: videoDevice) {
         if self.session.canAddInput(videoInput) {
           self.session.addInput(videoInput)
         }
-        self.configureFrameRate(for: videoDevice)
-        self.updateDeviceInfo(videoDevice)
       }
 
       // Output
       // Only add if not already added
       if !self.session.outputs.contains(self.videoOutput) {
         self.videoOutput.alwaysDiscardsLateVideoFrames = true
+        // Bi-planar YCbCr is what webcam frames decode to natively and what
+        // Vision consumes directly; BGRA would force a per-frame conversion.
         self.videoOutput.videoSettings = [
-          kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+          kCVPixelBufferPixelFormatTypeKey as String:
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         ]
         self.videoOutput.setSampleBufferDelegate(self, queue: self.captureQueue)
         if self.session.canAddOutput(self.videoOutput) {
@@ -139,6 +151,13 @@ class CameraManager: NSObject, ObservableObject {
       }
 
       self.session.commitConfiguration()
+
+      // The preset takes effect at commit and can reset the device's frame
+      // durations, so lock the frame rate only after committing.
+      if let videoDevice = device {
+        self.configureFrameRate(for: videoDevice)
+        self.updateDeviceInfo(videoDevice)
+      }
     }
   }
 
@@ -192,13 +211,29 @@ class CameraManager: NSObject, ObservableObject {
 
   private func configureFrameRate(for device: AVCaptureDevice) {
     let ranges = device.activeFormat.videoSupportedFrameRateRanges
+
+    // Prefer a range that contains the target rate; otherwise the closest one.
+    // External webcams typically report wide ranges (e.g. 1-30 fps), and
+    // without an explicit floor auto-exposure can throttle capture to a few
+    // frames per second, which shows up as pointer lag.
+    let containing = ranges.first {
+      $0.minFrameRate <= preferredFrameRate && preferredFrameRate <= $0.maxFrameRate
+    }
     guard
-      let range = ranges.min(by: {
-        abs($0.maxFrameRate - preferredFrameRate) < abs($1.maxFrameRate - preferredFrameRate)
-      })
+      let range = containing
+        ?? ranges.min(by: {
+          abs($0.maxFrameRate - preferredFrameRate) < abs($1.maxFrameRate - preferredFrameRate)
+        })
     else { return }
-    guard abs(range.minFrameRate - range.maxFrameRate) < 0.01 else { return }
-    let duration = range.minFrameDuration
+
+    let duration: CMTime
+    if containing != nil {
+      duration = CMTime(value: 1, timescale: CMTimeScale(preferredFrameRate))
+    } else if range.maxFrameRate < preferredFrameRate {
+      duration = range.minFrameDuration
+    } else {
+      duration = range.maxFrameDuration
+    }
 
     do {
       try device.lockForConfiguration()
